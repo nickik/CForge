@@ -4,6 +4,9 @@
             [cforge.core :as core]
             [cforge.trace :as trace]))
 
+(def unsupported-categories
+  #{:parse/unsupported-syntax :type/unsupported :runtime/unsupported})
+
 (defn- read-suite [suite-file]
   (edn/read-string {:readers {'path identity}}
                    (slurp suite-file)))
@@ -11,34 +14,36 @@
 (defn- source-file [suite-file relative]
   (io/file (.getParentFile (io/file suite-file)) relative))
 
+(defn- first-category [result]
+  (some-> result :diagnostics first :category))
+
 (defn- classify-result [test result]
   (let [kind (:kind test)
-        diagnostics (:diagnostics result)]
+        diagnostics (:diagnostics result)
+        category (first-category result)]
     (case kind
       :parse
-      (if (seq diagnostics)
-        {:status :fail :reason :unexpected-diagnostic}
-        {:status :pass})
+      (cond
+        (empty? diagnostics) {:status :pass}
+        (contains? unsupported-categories category)
+        {:status :unsupported :reason category}
+        :else {:status :fail :reason :unexpected-diagnostic :actual category})
 
       :negative
-      (let [expected (:expect test)
-            actual (some-> diagnostics first :category)]
+      (let [expected (:expect test)]
         (cond
           (empty? diagnostics) {:status :fail :reason :expected-rejection}
-          (= expected actual) {:status :pass}
-          (= :parse/unsupported-syntax actual) {:status :unsupported :reason actual}
-          (= :type/unsupported actual) {:status :unsupported :reason actual}
-          :else {:status :fail :reason :wrong-diagnostic :expected expected :actual actual}))
+          (= expected category) {:status :pass}
+          (contains? unsupported-categories category)
+          {:status :unsupported :reason category}
+          :else {:status :fail :reason :wrong-diagnostic
+                 :expected expected :actual category}))
 
       :run
       (cond
         (seq diagnostics)
-        (let [category (some-> diagnostics first :category)]
-          {:status (if (contains? #{:parse/unsupported-syntax :type/unsupported :runtime/unsupported}
-                                   category)
-                     :unsupported
-                     :fail)
-           :reason category})
+        {:status (if (contains? unsupported-categories category) :unsupported :fail)
+         :reason category}
 
         (= (:exit test) (:exit result)) {:status :pass}
         :else {:status :fail :reason :wrong-exit
@@ -74,4 +79,6 @@
        :counts {:pass (get counts :pass 0)
                 :fail (get counts :fail 0)
                 :unsupported (get counts :unsupported 0)}
+       :conforming? (and (zero? (get counts :fail 0))
+                         (zero? (get counts :unsupported 0)))
        :results results})))
