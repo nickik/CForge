@@ -1,0 +1,4 @@
+{:paths ["src" "../src"]
+ :aliases
+ {:run {:main-opts ["-m" "forge-harness.main"]}
+  :cforge-adapter {:main-opts ["-m" "forge-harness.adapters.cforge"]}}}
