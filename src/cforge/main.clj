@@ -59,7 +59,7 @@
     :conformance
     (let [r (conformance/run-suite path)]
       (print-data r pretty?)
-      (if (zero? (get-in r [:counts :fail])) 0 1))))
+      (if (:conforming? r) 0 1))))
 
 (defn -main [& args]
   (try
