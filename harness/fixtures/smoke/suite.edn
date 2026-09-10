@@ -1,0 +1,8 @@
+{:suite :forge/harness-smoke
+ :version 1
+ :tests
+ [{:id :arithmetic
+   :path "arithmetic.fg"
+   :kind :run
+   :compare :execution
+   :exit 0}]}
