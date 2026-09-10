@@ -1,0 +1,11 @@
+{:protocol 1
+ :implementations
+ [{:id :cforge
+   :enabled true
+   :command ["clojure" "-M:cforge-adapter"]}
+
+  ;; Enable once the production Forge compiler has an adapter implementing
+  ;; harness/protocol.md. Keep the harness independent of the compiler CLI.
+  {:id :forge
+   :enabled false
+   :command ["./adapters/forge"]}]}
