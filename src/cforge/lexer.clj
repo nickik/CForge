@@ -37,10 +37,26 @@
            :span {:start start :end end :line line :column column}}
     (some? value) (assoc :value value)))
 
+(defn- scan-block-comment [^String source start line column]
+  (let [n (.length source)]
+    (loop [j (+ start 2) l line col (+ column 2)]
+      (cond
+        (>= j n)
+        {:end n :line l :column col :terminated? false}
+
+        (and (< (inc j) n) (= (.substring source j (+ j 2)) "*/"))
+        {:end (+ j 2) :line l :column (+ col 2) :terminated? true}
+
+        (= (.charAt source j) \newline)
+        (recur (inc j) (inc l) 1)
+
+        :else
+        (recur (inc j) l (inc col))))))
+
 (defn lex
   "Lex Forge source into {:tokens [...] :diagnostics [...]}.
-   Byte offsets are currently Java string offsets for ASCII Forge source; this will be
-   upgraded to explicit UTF-8 byte offsets before Unicode identifiers become normative."
+   Offsets are Java string offsets for now; Forge Unicode/UTF-8 byte-span semantics
+   must be frozen before non-ASCII source spans become normative."
   [^String source]
   (trace/with-phase :lex
     (let [n (.length source)]
@@ -62,25 +78,21 @@
 
               (= c2 "//")
               (let [j (loop [j (+ i 2)]
-                        (if (or (>= j n) (= (.charAt source j) \newline)) j (recur (inc j))))]
+                        (if (or (>= j n) (= (.charAt source j) \newline))
+                          j
+                          (recur (inc j))))]
                 (recur j line (+ column (- j i)) tokens diagnostics))
 
               (= c2 "/*")
-              (loop [j (+ i 2) l line col (+ column 2)]
-                (cond
-                  (>= j n)
-                  (recur n l col tokens
-                         (conj diagnostics (diagnostic :lex/unterminated-comment
-                                                       "unterminated block comment"
-                                                       i n line column)))
-
-                  (and (< (inc j) n) (= (.substring source j (+ j 2)) "*/"))
-                  (recur (+ j 2) l (+ col 2) tokens diagnostics)
-
-                  (= (.charAt source j) \newline)
-                  (recur (inc j) (inc l) 1)
-
-                  :else (recur (inc j) l (inc col))))
+              (let [{end :end new-line :line new-column :column terminated? :terminated?}
+                    (scan-block-comment source i line column)
+                    diagnostics' (if terminated?
+                                   diagnostics
+                                   (conj diagnostics
+                                         (diagnostic :lex/unterminated-comment
+                                                     "unterminated block comment"
+                                                     i end line column)))]
+                (recur end new-line new-column tokens diagnostics'))
 
               (ident-start? c)
               (let [j (loop [j (inc i)]
@@ -97,7 +109,8 @@
                         (if (and (< j n) (Character/isDigit ^char (.charAt source j)))
                           (recur (inc j)) j))
                     has-dot? (and (< j n) (= (.charAt source j) \.)
-                                  (< (inc j) n) (Character/isDigit ^char (.charAt source (inc j))))
+                                  (< (inc j) n)
+                                  (Character/isDigit ^char (.charAt source (inc j))))
                     k (if has-dot?
                         (loop [k (+ j 2)]
                           (if (and (< k n) (Character/isDigit ^char (.charAt source k)))
@@ -105,9 +118,7 @@
                         j)
                     text (.substring source i k)
                     kind (if has-dot? :float :int)
-                    value (try
-                            (if has-dot? (Double/parseDouble text) (bigint text))
-                            (catch Exception _ nil))
+                    value (if has-dot? (Double/parseDouble text) (bigint text))
                     t (token kind text value i k line column)]
                 (trace/emit! {:event :lex/token :kind kind :span (:span t)})
                 (recur k line (+ column (- k i)) (conj tokens t) diagnostics))
@@ -123,21 +134,31 @@
                         (if (>= (inc j) n)
                           [n (str out) false]
                           (let [e (.charAt source (inc j))
-                                v (case e \n \newline \r \return \t \tab \" \" \\ \\ nil)]
+                                v (case e
+                                    \n \newline
+                                    \r \return
+                                    \t \tab
+                                    \" \"
+                                    \\ \\ 
+                                    nil)]
                             (if (nil? v)
                               [j (str out) false]
-                              (do (.append out ^char v) (recur (+ j 2) out)))))
-                        :else (do (.append out ^char (.charAt source j))
-                                  (recur (inc j) out))))
-                    text (.substring source i j)]
+                              (do (.append out ^char v)
+                                  (recur (+ j 2) out)))))
+                        :else
+                        (do (.append out ^char (.charAt source j))
+                            (recur (inc j) out))))]
                 (if ok?
-                  (let [t (token :string text value i j line column)]
+                  (let [text (.substring source i j)
+                        t (token :string text value i j line column)]
                     (trace/emit! {:event :lex/token :kind :string :span (:span t)})
                     (recur j line (+ column (- j i)) (conj tokens t) diagnostics))
-                  (recur (max (inc i) j) line (+ column (max 1 (- j i))) tokens
-                         (conj diagnostics
-                               (diagnostic :lex/invalid-string "invalid or unterminated string literal"
-                                           i j line column)))))
+                  (let [end (max (inc i) j)]
+                    (recur end line (+ column (max 1 (- end i))) tokens
+                           (conj diagnostics
+                                 (diagnostic :lex/invalid-string
+                                             "invalid or unterminated string literal"
+                                             i end line column))))))
 
               (contains? multi-tokens c2)
               (let [kind (get multi-tokens c2)
