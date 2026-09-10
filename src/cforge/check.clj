@@ -1,15 +1,16 @@
 (ns cforge.check
-  (:require [cforge.trace :as trace]))
+  (:require [clojure.string :as str]
+            [cforge.trace :as trace]))
 
-(def integer-types
-  {:i8  {:bits 8 :signed? true}
-   :u8  {:bits 8 :signed? false}
-   :i16 {:bits 16 :signed? true}
-   :u16 {:bits 16 :signed? false}
-   :i32 {:bits 32 :signed? true}
-   :u32 {:bits 32 :signed? false}
-   :i64 {:bits 64 :signed? true}
-   :u64 {:bits 64 :signed? false}})
+(def integer-ranges
+  {:i8  [(- 128N) 127N]
+   :u8  [0N 255N]
+   :i16 [(- 32768N) 32767N]
+   :u16 [0N 65535N]
+   :i32 [(- 2147483648N) 2147483647N]
+   :u32 [0N 4294967295N]
+   :i64 [(- 9223372036854775808N) 9223372036854775807N]
+   :u64 [0N 18446744073709551615N]})
 
 (defn- diagnostic [category message span]
   {:category category :severity :error :message message :span span})
@@ -20,23 +21,15 @@
       :named-type (let [parts (:name type-node)]
                     (if (= 1 (count parts))
                       (keyword (first parts))
-                      (keyword (clojure.string/join "." parts))))
+                      (keyword (str/join "." parts))))
       :optional-type [:optional (type-key (:inner type-node))]
       :pointer-type [:pointer (type-key (:to type-node))]
       :reference-type [:reference (:mutable? type-node) (type-key (:to type-node))]
       nil)))
 
-(defn- int-range [t]
-  (let [{:keys [bits signed?]} (get integer-types t)]
-    (when bits
-      (if signed?
-        [(- (bit-shift-left 1N (dec bits)))
-         (dec (bit-shift-left 1N (dec bits)))]
-        [0N (dec (bit-shift-left 1N bits))]))))
-
 (defn- ensure-int-fits! [value t span]
-  (if-let [[lo hi] (int-range t)]
-    (when (or (< value lo) (> value hi))
+  (if-let [[lo hi] (get integer-ranges t)]
+    (when-not (<= lo value hi)
       (throw (ex-info "integer literal does not fit target type"
                       {:diagnostic (diagnostic :type/overflow
                                                (str value " does not fit " (name t))
@@ -46,14 +39,14 @@
                                              (str "unsupported integer type " t)
                                              span)}))))
 
-(declare check-expr check-block)
-
 (defn- require-type! [actual expected span]
   (when (not= actual expected)
     (throw (ex-info "type mismatch"
                     {:diagnostic (diagnostic :type/mismatch
                                              (str "expected " expected ", found " actual)
                                              span)}))))
+
+(declare check-expr check-block check-statement)
 
 (defn- check-expr [expr env expected]
   (case (:node expr)
@@ -63,13 +56,15 @@
       (assoc expr :forge-type t))
 
     :boolean-literal
-    (do (when expected (require-type! :bool expected (:span expr)))
-        (assoc expr :forge-type :bool))
+    (do
+      (when expected (require-type! :bool expected (:span expr)))
+      (assoc expr :forge-type :bool))
 
     :name
     (if-let [t (get env (:name expr))]
-      (do (when expected (require-type! t expected (:span expr)))
-          (assoc expr :forge-type t))
+      (do
+        (when expected (require-type! t expected (:span expr)))
+        (assoc expr :forge-type t))
       (throw (ex-info "unresolved name"
                       {:diagnostic (diagnostic :name/unresolved
                                                (str "unresolved name " (:name expr))
@@ -77,13 +72,17 @@
 
     :unary
     (let [op (:op expr)]
-      (case op
-        :not (let [inner (check-expr (:expr expr) env :bool)]
-               (assoc expr :expr inner :forge-type :bool))
-        (:neg :pos :bit-not)
+      (cond
+        (= op :not)
+        (let [inner (check-expr (:expr expr) env :bool)]
+          (assoc expr :expr inner :forge-type :bool))
+
+        (contains? #{:neg :pos :bit-not} op)
         (let [t (or expected :i32)
               inner (check-expr (:expr expr) env t)]
           (assoc expr :expr inner :forge-type t))
+
+        :else
         (throw (ex-info "unsupported unary operator"
                         {:diagnostic (diagnostic :type/unsupported
                                                  (str "unsupported unary operator " op)
@@ -93,10 +92,15 @@
     (let [op (:op expr)]
       (cond
         (contains? #{:add :sub :mul :div :rem :bit-and :bit-or :bit-xor :shl :shr} op)
-        (let [t (or expected :i32)
-              left (check-expr (:left expr) env t)
-              right (check-expr (:right expr) env t)]
-          (assoc expr :left left :right right :forge-type t))
+        (let [t (or expected :i32)]
+          (when-not (contains? integer-ranges t)
+            (throw (ex-info "integer operation requires integer operands"
+                            {:diagnostic (diagnostic :type/mismatch
+                                                     (str "integer operator applied to " t)
+                                                     (:span expr))})))
+          (let [left (check-expr (:left expr) env t)
+                right (check-expr (:right expr) env t)]
+            (assoc expr :left left :right right :forge-type t)))
 
         (contains? #{:eq :neq :lt :lte :gt :gte} op)
         (let [left (check-expr (:left expr) env nil)
@@ -136,24 +140,23 @@
          (assoc env (:name stmt) decl-type)]))
 
     :return
-    (let [expr (:expr stmt)]
-      (if expr
-        [(assoc stmt :expr (check-expr expr env return-type)) env]
-        (do
-          (when return-type
-            (throw (ex-info "missing return value"
-                            {:diagnostic (diagnostic :type/return
-                                                     "return value required"
-                                                     (:span stmt))})))
-          [stmt env])))
+    (if-let [expr (:expr stmt)]
+      [(assoc stmt :expr (check-expr expr env return-type)) env]
+      (do
+        (when return-type
+          (throw (ex-info "missing return value"
+                          {:diagnostic (diagnostic :type/return
+                                                   "return value required"
+                                                   (:span stmt))})))
+        [stmt env]))
 
     :if
     (let [condition (check-expr (:condition stmt) env :bool)
           [then _] (check-block (:then stmt) env return-type)
-          [else-branch _] (if (:else stmt)
-                            (if (= :block (get-in stmt [:else :node]))
-                              (check-block (:else stmt) env return-type)
-                              (check-statement (:else stmt) env return-type))
+          [else-branch _] (if-let [else-node (:else stmt)]
+                            (if (= :block (:node else-node))
+                              (check-block else-node env return-type)
+                              (check-statement else-node env return-type))
                             [nil env])]
       [(assoc stmt :condition condition :then then :else else-branch) env])
 
@@ -171,13 +174,15 @@
 (defn- check-block [block env return-type]
   (loop [remaining (:statements block) env env checked []]
     (if-let [stmt (first remaining)]
-      (let [[stmt env] (check-statement stmt env return-type)]
-        (recur (next remaining) env (conj checked stmt)))
+      (let [[checked-stmt env'] (check-statement stmt env return-type)]
+        (recur (next remaining) env' (conj checked checked-stmt)))
       [(assoc block :statements checked) env])))
 
 (defn- check-function [f]
   (let [ret (type-key (:return-type f))
-        param-env (reduce (fn [m p] (assoc m (:name p) (type-key (:type p)))) {} (:params f))
+        param-env (reduce (fn [m p]
+                            (assoc m (:name p) (type-key (:type p))))
+                          {} (:params f))
         [body _] (check-block (:body f) param-env ret)]
     (assoc f :resolved-return-type ret :body body)))
 
@@ -185,11 +190,12 @@
   (trace/with-phase :check
     (try
       (let [names (map :name (:declarations ast))
-            duplicates (seq (for [[n xs] (group-by identity names) :when (> (count xs) 1)] n))]
-        (when duplicates
+            duplicate (first (for [[n xs] (group-by identity names)
+                                   :when (> (count xs) 1)] n))]
+        (when duplicate
           (throw (ex-info "duplicate top-level declaration"
                           {:diagnostic (diagnostic :name/duplicate
-                                                   (str "duplicate declaration " (first duplicates))
+                                                   (str "duplicate declaration " duplicate)
                                                    (:span ast))})))
         (let [decls (mapv (fn [d]
                             (case (:node d)
