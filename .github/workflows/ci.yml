@@ -1,0 +1,88 @@
+name: CForge CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Clojure tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Install Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.5
+        with:
+          cli: latest
+
+      - name: Show tool versions
+        run: |
+          java --version
+          clojure -Sdescribe
+
+      - name: Resolve dependencies
+        run: clojure -P -M:test
+
+      - name: Run unit tests
+        run: clojure -M:test
+
+      - name: Smoke-test CLI
+        run: |
+          clojure -M:native -- --ast --pprint harness/fixtures/smoke/arithmetic.fg
+          clojure -M:native -- --run harness/fixtures/smoke/arithmetic.fg
+
+  native-image:
+    name: GraalVM native image
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: graalvm-community
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          native-image-job-reports: 'true'
+
+      - name: Install Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.5
+        with:
+          cli: latest
+
+      - name: Show tool versions
+        run: |
+          java --version
+          native-image --version
+          clojure -Sdescribe
+
+      - name: Build native executable
+        run: bash bin/build-native.sh
+
+      - name: Verify native executable
+        run: |
+          test -x target/cforge
+          ./target/cforge --ast --pprint harness/fixtures/smoke/arithmetic.fg
+          ./target/cforge --run harness/fixtures/smoke/arithmetic.fg
+
+      - name: Upload native executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: cforge-linux-x64
+          path: target/cforge
+          if-no-files-found: error
