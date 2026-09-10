@@ -1,6 +1,7 @@
 (ns cforge.main
   (:gen-class)
   (:require [clojure.pprint :as pprint]
+            [clojure.string :as str]
             [cforge.core :as core]
             [cforge.conformance :as conformance]
             [cforge.lexer :as lexer]
@@ -15,8 +16,8 @@
        "  cforge --conformance [--pprint] [--trace] SUITE.FDN\n"))
 
 (defn- parse-args [args]
-  (let [flags (set (filter #(clojure.string/starts-with? % "--") args))
-        positional (vec (remove #(clojure.string/starts-with? % "--") args))
+  (let [flags (set (filter #(str/starts-with? % "--") args))
+        positional (vec (remove #(str/starts-with? % "--") args))
         modes (filter flags ["--tokens" "--ast" "--check" "--run" "--conformance"])]
     (when (not= 1 (count modes))
       (throw (ex-info "exactly one mode is required" {:usage true})))
@@ -51,8 +52,9 @@
     (let [r (core/run-source (slurp path))]
       (if (seq (:diagnostics r))
         (do (print-data (select-keys r [:diagnostics :phase]) pretty?) 1)
-        (do (when pretty? (print-data (select-keys r [:value :exit]) true))
-            (:exit r))))
+        (do
+          (when pretty? (print-data (select-keys r [:value :exit]) true))
+          (:exit r))))
 
     :conformance
     (let [r (conformance/run-suite path)]
