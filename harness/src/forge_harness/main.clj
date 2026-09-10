@@ -28,6 +28,26 @@
     :negative :diagnostics
     :run :execution))
 
+(defn- expected-result? [test result]
+  (case (:kind test)
+    :parse
+    (= :accepted (:outcome result))
+
+    :negative
+    (and (= :rejected (:outcome result))
+         (or (nil? (:expect test))
+             (= (:expect test) (some-> result :diagnostics first :category))))
+
+    :run
+    (and (= :accepted (:outcome result))
+         (= (:exit test) (:program-exit result))
+         (or (not (contains? test :stdout))
+             (= (:stdout test) (:program-stdout result)))
+         (or (not (contains? test :stderr))
+             (= (:stderr test) (:program-stderr result))))
+
+    false))
+
 (defn- run-one-implementation [suite-dir impl test]
   (let [file (resolve-path suite-dir (:path test))
         invocation (process/invoke (:command impl) (operation-for test) file)]
@@ -44,6 +64,9 @@
                          (keep (fn [[id x]]
                                  (when (= :ok (:status x)) [id (:result x)])))
                          invocations)
+        expectations (into {}
+                           (map (fn [[id result]] [id (expected-result? test result)]))
+                           normalized)
         level (or (:compare test) (default-level test))
         comparison (when (empty? infra-failures)
                      (compare/compare-results level normalized))]
@@ -53,7 +76,9 @@
      :compare level
      :pass? (and (empty? infra-failures)
                  (:match? comparison)
+                 (every? true? (vals expectations))
                  (not-any? #(= :unsupported (:outcome %)) (vals normalized)))
+     :expectations expectations
      :comparison comparison
      :infrastructure-failures infra-failures
      :results normalized
