@@ -50,3 +50,35 @@ jobs:
             --driver clojure \
             --driver-arg -M:native \
             --driver-arg --
+
+      - name: Run CKV with Forge HashMapStringString
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB="$(mktemp)"
+          cleanup() { rm -f "$DB" "$DB.lock"; }
+          trap cleanup EXIT
+
+          run_ckv() {
+            cargo run --quiet \
+              --manifest-path .forge-toolchain/Cargo.toml \
+              -p forge-build --bin forge -- \
+              run --manifest-path .forge-toolchain/examples/ckv/forge.fdn \
+              --target ckv \
+              --driver clojure \
+              --driver-arg -M:native \
+              --driver-arg -- \
+              -- "$@"
+          }
+
+          run_ckv --database-file "$DB" set test 5 | grep -Eq '^access: [0-9]+ us$'
+          GET1="$(run_ckv --database-file "$DB" get test)"
+          test "$(printf '%s\n' "$GET1" | sed -n '1p')" = "5"
+
+          run_ckv --database-file "$DB" set other 9 | grep -Eq '^access: [0-9]+ us$'
+          run_ckv --database-file "$DB" set test 7 | grep -Eq '^access: [0-9]+ us$'
+          GET2="$(run_ckv --database-file "$DB" get test)"
+          test "$(printf '%s\n' "$GET2" | sed -n '1p')" = "7"
+          GET3="$(run_ckv --database-file "$DB" get other)"
+          test "$(printf '%s\n' "$GET3" | sed -n '1p')" = "9"
+          test "$(wc -l < "$DB")" -eq 3
