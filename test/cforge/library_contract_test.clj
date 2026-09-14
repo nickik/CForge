@@ -36,6 +36,21 @@
     (is (not (re-find #"(?i)exit\s*\(" core-source)))
     (is (not (re-find #"(?i)abort\s*\(" core-source)))))
 
+(deftest arena-is-explicit-capability-not-language-interface
+  (doseq [required ["ArenaOps" "context: *void" "ops: &ArenaOps"
+                    "arena_alloc" "arena_free" "arena_reclaim"]]
+    (is (str/includes? core-source required) required))
+  (testing "dispatch is explicit through the operations table"
+    (is (str/includes? core-source "arena.ops.alloc(arena.context, request)"))
+    (is (str/includes? core-source "arena.ops.free(arena.context, block)"))
+    (is (str/includes? core-source "arena.ops.reclaim(arena.context, target_bytes)"))))
+
+(deftest allocator-is-also-explicit-capability
+  (doseq [required ["AllocatorOps" "ops: &AllocatorOps"
+                    "allocator_alloc" "allocator_free" "allocator_resize"]]
+    (is (str/includes? core-source required) required))
+  (is (str/includes? core-source "allocator.ops.alloc(allocator.context, request)")))
+
 (deftest allocation-failure-is-not-implicit-panic
   (is (str/includes? core-source "Result[MemoryBlock, AllocError]"))
   (is (str/includes? core-source "Primitive allocation never implicitly panics")))
