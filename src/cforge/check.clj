@@ -246,7 +246,7 @@
       (throw (ex-info "invalid main return type"
                       {:diagnostic (diagnostic :type/main
                                                "bootstrap main must return i32"
-                                               (:span main))}))))
+                                               (:span main))})))))
 
 (defn check-file [ast]
   (trace/with-phase :check
