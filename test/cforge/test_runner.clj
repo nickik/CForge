@@ -5,6 +5,8 @@
             [cforge.ckv-test]
             [cforge.core-test]
             [cforge.cosmic-memory-pool-model-test]
+            [cforge.cosmic-physical-page-provider-test]
+            [cforge.cosmic-memory-object-model-test]
             [cforge.freestanding-libraries-test]
             [cforge.host-services-test]
             [cforge.hosted-std-forge-test]
@@ -19,6 +21,8 @@
                                           'cforge.ckv-test
                                           'cforge.core-test
                                           'cforge.cosmic-memory-pool-model-test
+                                          'cforge.cosmic-physical-page-provider-test
+                                          'cforge.cosmic-memory-object-model-test
                                           'cforge.freestanding-libraries-test
                                           'cforge.host-services-test
                                           'cforge.hosted-std-forge-test
