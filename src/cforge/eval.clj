@@ -27,7 +27,7 @@
 (defn- checked-int [t n span]
   (if-let [[lo hi] (range-for t)]
     (if (<= lo n hi)
-      (forge-value t (bigint n))
+      (forge-value t n)
       (throw (ex-info "integer overflow"
                       {:diagnostic {:category :runtime/overflow :severity :error
                                     :message (str "integer overflow for " t)
@@ -44,12 +44,43 @@
                                 :message what
                                 :span span}})))
 
-(defn- big-and [a b] (bigint (.and (biginteger a) (biginteger b))))
-(defn- big-or [a b] (bigint (.or (biginteger a) (biginteger b))))
-(defn- big-xor [a b] (bigint (.xor (biginteger a) (biginteger b))))
-(defn- big-not [a] (bigint (.not (biginteger a))))
-(defn- big-shift-left [a n] (bigint (.shiftLeft (biginteger a) n)))
-(defn- big-shift-right [a n] (bigint (.shiftRight (biginteger a) n)))
+(defn- as-big-integer ^java.math.BigInteger [n]
+  (cond
+    (instance? java.math.BigInteger n)
+    n
+
+    (instance? clojure.lang.BigInt n)
+    (.toBigInteger ^clojure.lang.BigInt n)
+
+    :else
+    (java.math.BigInteger/valueOf (long n))))
+
+(defn- big-and [a b]
+  (let [^java.math.BigInteger a' (as-big-integer a)
+        ^java.math.BigInteger b' (as-big-integer b)]
+    (.and a' b')))
+
+(defn- big-or [a b]
+  (let [^java.math.BigInteger a' (as-big-integer a)
+        ^java.math.BigInteger b' (as-big-integer b)]
+    (.or a' b')))
+
+(defn- big-xor [a b]
+  (let [^java.math.BigInteger a' (as-big-integer a)
+        ^java.math.BigInteger b' (as-big-integer b)]
+    (.xor a' b')))
+
+(defn- big-not [a]
+  (let [^java.math.BigInteger a' (as-big-integer a)]
+    (.not a')))
+
+(defn- big-shift-left [a n]
+  (let [^java.math.BigInteger a' (as-big-integer a)]
+    (.shiftLeft a' n)))
+
+(defn- big-shift-right [a n]
+  (let [^java.math.BigInteger a' (as-big-integer a)]
+    (.shiftRight a' n)))
 
 (defn- checked-shift-count! [t n span]
   (let [width (width-for t)]

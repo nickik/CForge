@@ -116,9 +116,11 @@
                           (if (and (< k n) (Character/isDigit ^char (.charAt source k)))
                             (recur (inc k)) k))
                         j)
-                    text (.substring source i k)
+                    ^String text (.substring source i k)
                     kind (if has-dot? :float :int)
-                    value (if has-dot? (Double/parseDouble text) (bigint text))
+                    value (if has-dot?
+                            (Double/parseDouble text)
+                            (java.math.BigInteger. text))
                     t (token kind text value i k line column)]
                 (trace/emit! {:event :lex/token :kind kind :span (:span t)})
                 (recur k line (+ column (- k i)) (conj tokens t) diagnostics))
