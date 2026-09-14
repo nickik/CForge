@@ -6,6 +6,7 @@
             [cforge.core-test]
             [cforge.cosmic-memory-pool-model-test]
             [cforge.cosmic-physical-page-provider-test]
+            [cforge.cosmic-object-handle-model-test]
             [cforge.cosmic-memory-object-model-test]
             [cforge.freestanding-libraries-test]
             [cforge.host-services-test]
@@ -22,6 +23,7 @@
                                           'cforge.core-test
                                           'cforge.cosmic-memory-pool-model-test
                                           'cforge.cosmic-physical-page-provider-test
+                                          'cforge.cosmic-object-handle-model-test
                                           'cforge.cosmic-memory-object-model-test
                                           'cforge.freestanding-libraries-test
                                           'cforge.host-services-test
