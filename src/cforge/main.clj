@@ -11,9 +11,9 @@
 (defn- usage []
   (str "Usage:\n"
        "  cforge --tokens [--pprint] [--trace] FILE\n"
-       "  cforge --ast [--pprint] [--trace] [--library NAME=PATH]... FILE\n"
-       "  cforge --check [--pprint] [--trace] [--library NAME=PATH]... FILE\n"
-       "  cforge --run [--pprint] [--trace] [--library NAME=PATH]... FILE [-- ARGS...]\n"
+       "  cforge --ast [--pprint] [--trace] [--platform NAME] [--library NAME=PATH]... FILE\n"
+       "  cforge --check [--pprint] [--trace] [--platform NAME] [--library NAME=PATH]... FILE\n"
+       "  cforge --run [--pprint] [--trace] [--platform NAME] [--library NAME=PATH]... FILE [-- ARGS...]\n"
        "  cforge --conformance [--pprint] [--trace] SUITE.FDN\n"))
 
 (defn- parse-library [spec]
@@ -27,6 +27,7 @@
          mode nil
          pretty? false
          trace? false
+         platform nil
          libraries []
          program-args []
          positional []]
@@ -34,31 +35,35 @@
       (cond
         (= arg "--")
         (if (and (= mode :run) (= 1 (count positional)))
-          (recur nil mode pretty? trace? libraries (vec (next args)) positional)
-          ;; Clojure CLI commonly leaves its own option separator in argv before
-          ;; the actual CForge mode. Treat that form as a launcher separator.
-          (recur (next args) mode pretty? trace? libraries program-args positional))
+          (recur nil mode pretty? trace? platform libraries (vec (next args)) positional)
+          (recur (next args) mode pretty? trace? platform libraries program-args positional))
 
         (contains? #{"--tokens" "--ast" "--check" "--run" "--conformance"} arg)
         (if mode
           (throw (ex-info "exactly one mode is required" {:usage true}))
-          (recur (next args) (keyword (subs arg 2)) pretty? trace? libraries program-args positional))
+          (recur (next args) (keyword (subs arg 2)) pretty? trace? platform libraries program-args positional))
 
         (= arg "--pprint")
-        (recur (next args) mode true trace? libraries program-args positional)
+        (recur (next args) mode true trace? platform libraries program-args positional)
 
         (= arg "--trace")
-        (recur (next args) mode pretty? true libraries program-args positional)
+        (recur (next args) mode pretty? true platform libraries program-args positional)
+
+        (= arg "--platform")
+        (let [value (second args)]
+          (when-not value
+            (throw (ex-info "--platform requires a value" {:usage true})))
+          (recur (nnext args) mode pretty? trace? value libraries program-args positional))
 
         (= arg "--library")
         (let [spec (second args)]
           (when-not spec
             (throw (ex-info "--library requires NAME=PATH" {:usage true})))
-          (recur (nnext args) mode pretty? trace?
+          (recur (nnext args) mode pretty? trace? platform
                  (conj libraries (parse-library spec)) program-args positional))
 
         (str/starts-with? arg "--library=")
-        (recur (next args) mode pretty? trace?
+        (recur (next args) mode pretty? trace? platform
                (conj libraries (parse-library (subs arg (count "--library="))))
                program-args positional)
 
@@ -66,14 +71,14 @@
         (let [value (second args)]
           (when-not value
             (throw (ex-info "--program-arg requires a value" {:usage true})))
-          (recur (nnext args) mode pretty? trace? libraries
+          (recur (nnext args) mode pretty? trace? platform libraries
                  (conj program-args value) positional))
 
         (str/starts-with? arg "--")
         (throw (ex-info (str "unknown option " arg) {:usage true}))
 
         :else
-        (recur (next args) mode pretty? trace? libraries program-args (conj positional arg)))
+        (recur (next args) mode pretty? trace? platform libraries program-args (conj positional arg)))
       (do
         (when-not mode
           (throw (ex-info "exactly one mode is required" {:usage true})))
@@ -83,13 +88,19 @@
          :path (first positional)
          :pretty? pretty?
          :trace? trace?
+         :platform platform
          :libraries libraries
          :program-args program-args}))))
 
 (defn- print-data [x pretty?]
   (if pretty? (pprint/pprint x) (prn x)))
 
-(defn- run-command [{:keys [mode path pretty? libraries program-args]}]
+(defn- run-command [{:keys [mode path pretty? libraries program-args platform]}]
+  ;; Platform is a build/provider selection, not Forge language semantics.
+  ;; Bootstrap CForge records it as a JVM property so replaceable host service
+  ;; providers can select implementations without changing Cosmic source.
+  (when platform
+    (System/setProperty "forge.platform" platform))
   (case mode
     :tokens
     (let [r (lexer/lex (slurp path))]
