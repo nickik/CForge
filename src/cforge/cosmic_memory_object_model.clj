@@ -38,79 +38,91 @@
     (pool/release! memory-pool charge))
   nil)
 
+(defn- commit-record!
+  [store request size backing-size page-count metadata-charge total-charge charge allocation object-id published]
+  (let [live-object (oh/object (:object-table store) object-id)
+        object-record {:id object-id
+                       :header live-object
+                       :handle (:handle published)
+                       :requested-size size
+                       :backing-size backing-size
+                       :page-count page-count
+                       :metadata-charge metadata-charge
+                       :total-charge total-charge
+                       :charge charge
+                       :allocation allocation
+                       :attributes (dissoc request :size)}]
+    (swap! (:state store) assoc-in [:objects object-id] object-record)
+    {:ok object-record}))
+
 (defn create!
   [store memory-pool provider {:keys [size physically-contiguous?] :as request}]
-  (let [{:keys [page-size]} (phys/geometry provider)
-        metadata-charge (:metadata-charge (store-state store))]
-    (cond
-      (not (and (integer? size) (pos? size))) {:error :invalid-size}
-      :else
-      (let [backing-size (round-up size page-size)
-            page-count (quot backing-size page-size)
-            total-charge (+ backing-size metadata-charge)
-            charge-result (pool/charge! memory-pool total-charge :memory-object)]
-        (if-let [charge (:ok charge-result)]
-          (if (fail? store :after-charge)
-            (do (rollback! store memory-pool provider charge nil nil nil nil)
-                {:error :injected-failure})
-            (let [allocation-result (phys/alloc-pages! provider page-count (boolean physically-contiguous?))]
-              (if-let [allocation (:ok allocation-result)]
-                (if (fail? store :after-physical-allocation)
-                  (do (rollback! store memory-pool provider charge allocation nil nil nil)
-                      {:error :injected-failure})
-                  (let [zero-result (phys/zero-pages! provider allocation)]
-                    (if (:error zero-result)
-                      (do (rollback! store memory-pool provider charge allocation nil nil nil)
-                          {:error :provider-failure})
-                      (let [object-result
-                            (oh/create-object! (:object-table store)
-                                               :memory-object
-                                               {:requested-size size
-                                                :backing-size backing-size
-                                                :page-count page-count})
-                            object (:ok object-result)
-                            object-id (:id object)]
-                        (if (fail? store :after-object-construction)
-                          (do (rollback! store memory-pool provider charge allocation nil object-id nil)
-                              {:error :injected-failure})
-                          (let [reservation-result (oh/reserve-slot! (:handle-table store))]
-                            (if-let [reservation (:ok reservation-result)]
-                              (if (fail? store :before-publish)
-                                (do (rollback! store memory-pool provider charge allocation reservation object-id nil)
-                                    {:error :injected-failure})
-                                (let [publish-result (oh/publish! (:handle-table store)
-                                                                  (:object-table store)
-                                                                  reservation
-                                                                  object-id)]
-                                  (if-let [published (:ok publish-result)]
-                                    (if (fail? store :after-publish)
-                                      (do (rollback! store memory-pool provider charge allocation nil object-id (:handle published))
-                                          {:error :injected-failure})
-                                      (let [live-object (oh/object (:object-table store) object-id)
-                                            object-record
-                                            {:id object-id
-                                             :header live-object
-                                             :handle (:handle published)
-                                             :requested-size size
-                                             :backing-size backing-size
-                                             :page-count page-count
-                                             :metadata-charge metadata-charge
-                                             :total-charge total-charge
-                                             :charge charge
-                                             :allocation allocation
-                                             :attributes (dissoc request :size)}]
-                                        (swap! (:state store) assoc-in [:objects object-id] object-record)
-                                        {:ok object-record}))
-                                    (do
-                                      (rollback! store memory-pool provider charge allocation reservation object-id nil)
-                                      {:error :publish-failure}))))
-                              (do
-                                (rollback! store memory-pool provider charge allocation nil object-id nil)
-                                {:error :publish-failure})))))))
+  (if-not (and (integer? size) (pos? size))
+    {:error :invalid-size}
+    (let [{:keys [page-size]} (phys/geometry provider)
+          metadata-charge (:metadata-charge (store-state store))
+          backing-size (round-up size page-size)
+          page-count (quot backing-size page-size)
+          total-charge (+ backing-size metadata-charge)
+          charge-result (pool/charge! memory-pool total-charge :memory-object)]
+      (if-let [charge (:ok charge-result)]
+        (if (fail? store :after-charge)
+          (do
+            (rollback! store memory-pool provider charge nil nil nil nil)
+            {:error :injected-failure})
+          (let [allocation-result
+                (phys/alloc-pages! provider page-count (boolean physically-contiguous?))]
+            (if-let [allocation (:ok allocation-result)]
+              (if (fail? store :after-physical-allocation)
                 (do
-                  (pool/release! memory-pool charge)
-                  {:error (:error allocation-result)}))))
-          {:error (:error charge-result)}))))))
+                  (rollback! store memory-pool provider charge allocation nil nil nil)
+                  {:error :injected-failure})
+                (let [zero-result (phys/zero-pages! provider allocation)]
+                  (if (:error zero-result)
+                    (do
+                      (rollback! store memory-pool provider charge allocation nil nil nil)
+                      {:error :provider-failure})
+                    (let [object-result
+                          (oh/create-object! (:object-table store)
+                                             :memory-object
+                                             {:requested-size size
+                                              :backing-size backing-size
+                                              :page-count page-count})
+                          object (:ok object-result)
+                          object-id (:id object)]
+                      (if (fail? store :after-object-construction)
+                        (do
+                          (rollback! store memory-pool provider charge allocation nil object-id nil)
+                          {:error :injected-failure})
+                        (let [reservation-result (oh/reserve-slot! (:handle-table store))]
+                          (if-let [reservation (:ok reservation-result)]
+                            (if (fail? store :before-publish)
+                              (do
+                                (rollback! store memory-pool provider charge allocation reservation object-id nil)
+                                {:error :injected-failure})
+                              (let [publish-result
+                                    (oh/publish! (:handle-table store)
+                                                 (:object-table store)
+                                                 reservation
+                                                 object-id)]
+                                (if-let [published (:ok publish-result)]
+                                  (if (fail? store :after-publish)
+                                    (do
+                                      (rollback! store memory-pool provider charge allocation nil object-id (:handle published))
+                                      {:error :injected-failure})
+                                    (commit-record! store request size backing-size page-count
+                                                    metadata-charge total-charge charge allocation
+                                                    object-id published))
+                                  (do
+                                    (rollback! store memory-pool provider charge allocation reservation object-id nil)
+                                    {:error :publish-failure}))))
+                            (do
+                              (rollback! store memory-pool provider charge allocation nil object-id nil)
+                              {:error :publish-failure}))))))))
+              (do
+                (pool/release! memory-pool charge)
+                {:error (:error allocation-result)}))))
+        {:error (:error charge-result)}))))
 
 (defn destroy! [store memory-pool provider object]
   (let [state (:state store)
