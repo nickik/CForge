@@ -52,8 +52,7 @@
    :slash [100 101 :div]
    :percent [100 101 :rem]})
 
-(def assignment-kinds
-  {:eq :assign})
+(def assignment-kinds {:eq :assign})
 
 (def prefix-ops
   {:bang :not :minus :neg :plus :pos :tilde :bit-not
@@ -301,9 +300,10 @@
           (recur params (advance p))
           [params p])))))
 
-(defn- parse-function [p]
-  (let [start (current p)
-        native? (= (:kind start) :nfn)
+(defn- parse-function [p public? public-start]
+  (let [start (or public-start (current p))
+        fn-token (current p)
+        native? (= (:kind fn-token) :nfn)
         p (advance p)
         [name-t p] (expect p :identifier)
         [_ p] (expect p :lparen)
@@ -311,7 +311,7 @@
         [_ p] (expect p :rparen)
         [ret p] (if (at? p :arrow) (parse-type (advance p)) [nil p])
         [body p] (parse-block p)]
-    [{:node :function-decl :native? native? :name (:text name-t)
+    [{:node :function-decl :public? public? :native? native? :name (:text name-t)
       :params params :return-type ret :body body
       :span {:start (get-in start [:span :start])
              :end (get-in body [:span :end])
@@ -335,11 +335,17 @@
             [{:node :import :names names :span (span-between start semi)} p]))))))
 
 (defn- parse-declaration [p]
-  (cond
-    (contains? #{:fn :nfn} (kind p)) (parse-function p)
-    (contains? #{:val :var :const} (kind p)) (parse-value-decl p)
-    :else (fail! p :parse/unsupported-syntax
-                 (str "declaration kind not implemented yet: " (name (kind p))))))
+  (let [public? (at? p :pub)
+        public-start (when public? (current p))
+        p (if public? (advance p) p)]
+    (cond
+      (contains? #{:fn :nfn} (kind p)) (parse-function p public? public-start)
+      (contains? #{:val :var :const} (kind p))
+      (if public?
+        (fail! p :parse/unsupported-syntax "public globals are not implemented in bootstrap")
+        (parse-value-decl p))
+      :else (fail! p :parse/unsupported-syntax
+                   (str "declaration kind not implemented yet: " (name (kind p)))))))
 
 (defn parse-tokens [tokens]
   (trace/with-phase :parse
