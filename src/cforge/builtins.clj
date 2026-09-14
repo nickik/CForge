@@ -37,8 +37,14 @@
 
 (defn resolve-call [expr imports]
   (when-let [signature (signature-for-call expr)]
-    (when (contains? imports (:import signature))
-      signature)))
+    (if (contains? imports (:import signature))
+      signature
+      (throw (ex-info "hosted standard-library module is not imported"
+                      {:diagnostic {:category :name/unresolved
+                                    :severity :error
+                                    :message (str "call requires import "
+                                                  (str/join "." (:import signature)))
+                                    :span (:span expr)}})))))
 
 (defn- lines [text]
   (if (empty? text) [] (str/split-lines text)))
