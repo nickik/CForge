@@ -1,7 +1,8 @@
 module core;
 
 // Mirror of Forge's freestanding standard-library root.
-// CForge will use this file to develop multi-unit/module resolution.
+// CForge uses this file to develop multi-unit/module resolution and library
+// contract testing.
 
 pub enum PanicKind {
     Explicit,
@@ -51,47 +52,88 @@ pub struct MemoryBlock {
     align: usize;
 }
 
+pub struct Arena {
+    provider: *void;
+}
+
+pub struct Allocator {
+    arena: &mut Arena;
+}
+
 pub struct ObjectCacheSpec {
     object_size: usize;
     object_align: usize;
     slab_size: usize;
 }
 
+pub struct ObjectCacheStats {
+    allocations: u64;
+    frees: u64;
+    allocation_failures: u64;
+    objects_in_use: usize;
+    objects_free: usize;
+    slabs_total: usize;
+    slabs_empty: usize;
+    bytes_backing: usize;
+    reclaims: u64;
+}
+
+pub struct ObjectCache {
+    arena: &mut Arena;
+    spec: ObjectCacheSpec;
+}
+
 pub fn min_i32(a: i32, b: i32) -> i32 {
-    if (a < b) {
-        return a;
-    }
+    if (a < b) { return a; }
     return b;
 }
 
 pub fn max_i32(a: i32, b: i32) -> i32 {
-    if (a > b) {
-        return a;
-    }
+    if (a > b) { return a; }
     return b;
 }
 
 pub fn min_u32(a: u32, b: u32) -> u32 {
-    if (a < b) {
-        return a;
-    }
+    if (a < b) { return a; }
     return b;
 }
 
 pub fn max_u32(a: u32, b: u32) -> u32 {
-    if (a > b) {
-        return a;
-    }
+    if (a > b) { return a; }
     return b;
 }
 
 pub fn is_power_of_two_usize(value: usize) -> bool {
-    if (value == 0) {
-        return false;
-    }
+    if (value == 0) { return false; }
     return (value & (value - 1)) == 0;
 }
 
 pub fn valid_alignment(align: usize) -> bool {
     return is_power_of_two_usize(align);
+}
+
+pub fn align_up_usize(value: usize, align: usize) -> usize {
+    return (value + (align - 1)) & ~(align - 1);
+}
+
+pub fn valid_alloc_request(request: &AllocRequest) -> bool {
+    if (request.size == 0) { return false; }
+    return valid_alignment(request.align);
+}
+
+pub fn valid_object_cache_spec(spec: &ObjectCacheSpec) -> bool {
+    if (spec.object_size == 0) { return false; }
+    if (!valid_alignment(spec.object_align)) { return false; }
+    if (!valid_alignment(spec.slab_size)) { return false; }
+    if (spec.slab_size < spec.object_size) { return false; }
+    val stride: usize = align_up_usize(spec.object_size, spec.object_align);
+    return stride <= spec.slab_size;
+}
+
+pub fn object_stride(spec: &ObjectCacheSpec) -> usize {
+    return align_up_usize(spec.object_size, spec.object_align);
+}
+
+pub fn objects_per_slab(spec: &ObjectCacheSpec) -> usize {
+    return spec.slab_size / object_stride(spec);
 }
