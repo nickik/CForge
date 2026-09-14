@@ -10,28 +10,68 @@
 (defn- usage []
   (str "Usage:\n"
        "  cforge --tokens [--pprint] [--trace] FILE\n"
-       "  cforge --ast [--pprint] [--trace] FILE\n"
-       "  cforge --check [--pprint] [--trace] FILE\n"
-       "  cforge --run [--pprint] [--trace] FILE\n"
+       "  cforge --ast [--pprint] [--trace] [--library NAME=PATH]... FILE\n"
+       "  cforge --check [--pprint] [--trace] [--library NAME=PATH]... FILE\n"
+       "  cforge --run [--pprint] [--trace] [--library NAME=PATH]... FILE\n"
        "  cforge --conformance [--pprint] [--trace] SUITE.FDN\n"))
 
+(defn- parse-library [spec]
+  (let [[name path] (str/split spec #"=" 2)]
+    (when (or (str/blank? name) (str/blank? path))
+      (throw (ex-info "--library expects NAME=PATH" {:usage true})))
+    [name path]))
+
 (defn- parse-args [args]
-  (let [flags (set (filter #(str/starts-with? % "--") args))
-        positional (vec (remove #(str/starts-with? % "--") args))
-        modes (filter flags ["--tokens" "--ast" "--check" "--run" "--conformance"])]
-    (when (not= 1 (count modes))
-      (throw (ex-info "exactly one mode is required" {:usage true})))
-    (when (not= 1 (count positional))
-      (throw (ex-info "exactly one input path is required" {:usage true})))
-    {:mode (keyword (subs (first modes) 2))
-     :path (first positional)
-     :pretty? (contains? flags "--pprint")
-     :trace? (contains? flags "--trace")}))
+  (loop [args (seq args)
+         mode nil
+         pretty? false
+         trace? false
+         libraries []
+         positional []]
+    (if-let [arg (first args)]
+      (cond
+        (contains? #{"--tokens" "--ast" "--check" "--run" "--conformance"} arg)
+        (if mode
+          (throw (ex-info "exactly one mode is required" {:usage true}))
+          (recur (next args) (keyword (subs arg 2)) pretty? trace? libraries positional))
+
+        (= arg "--pprint")
+        (recur (next args) mode true trace? libraries positional)
+
+        (= arg "--trace")
+        (recur (next args) mode pretty? true libraries positional)
+
+        (= arg "--library")
+        (let [spec (second args)]
+          (when-not spec
+            (throw (ex-info "--library requires NAME=PATH" {:usage true})))
+          (recur (nnext args) mode pretty? trace?
+                 (conj libraries (parse-library spec)) positional))
+
+        (str/starts-with? arg "--library=")
+        (recur (next args) mode pretty? trace?
+               (conj libraries (parse-library (subs arg (count "--library=")))) positional)
+
+        (str/starts-with? arg "--")
+        (throw (ex-info (str "unknown option " arg) {:usage true}))
+
+        :else
+        (recur (next args) mode pretty? trace? libraries (conj positional arg)))
+      (do
+        (when-not mode
+          (throw (ex-info "exactly one mode is required" {:usage true})))
+        (when (not= 1 (count positional))
+          (throw (ex-info "exactly one input path is required" {:usage true})))
+        {:mode mode
+         :path (first positional)
+         :pretty? pretty?
+         :trace? trace?
+         :libraries libraries}))))
 
 (defn- print-data [x pretty?]
   (if pretty? (pprint/pprint x) (prn x)))
 
-(defn- run-command [{:keys [mode path pretty?]}]
+(defn- run-command [{:keys [mode path pretty? libraries]}]
   (case mode
     :tokens
     (let [r (lexer/lex (slurp path))]
@@ -44,12 +84,12 @@
       (if (seq (:diagnostics r)) 1 0))
 
     :check
-    (let [r (core/check-source (slurp path))]
+    (let [r (core/check-source (slurp path) libraries)]
       (print-data (select-keys r [:typed-ast :diagnostics :phase]) pretty?)
       (if (seq (:diagnostics r)) 1 0))
 
     :run
-    (let [r (core/run-source (slurp path))]
+    (let [r (core/run-source (slurp path) libraries)]
       (if (seq (:diagnostics r))
         (do (print-data (select-keys r [:diagnostics :phase]) pretty?) 1)
         (do
