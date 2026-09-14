@@ -86,25 +86,21 @@
                                     (if (fail? store :after-publish)
                                       (do (rollback! store memory-pool provider charge allocation nil object-id (:handle published))
                                           {:error :injected-failure})
-                                      (let [live-result (oh/mark-live! (:object-table store) object-id)]
-                                        (if-let [live-object (:ok live-result)]
-                                          (let [object-record
-                                                {:id object-id
-                                                 :header live-object
-                                                 :handle (:handle published)
-                                                 :requested-size size
-                                                 :backing-size backing-size
-                                                 :page-count page-count
-                                                 :metadata-charge metadata-charge
-                                                 :total-charge total-charge
-                                                 :charge charge
-                                                 :allocation allocation
-                                                 :attributes (dissoc request :size)}]
-                                            (swap! (:state store) assoc-in [:objects object-id] object-record)
-                                            {:ok object-record})
-                                          (do
-                                            (rollback! store memory-pool provider charge allocation nil object-id (:handle published))
-                                            {:error :publish-failure}))))
+                                      (let [live-object (oh/object (:object-table store) object-id)
+                                            object-record
+                                            {:id object-id
+                                             :header live-object
+                                             :handle (:handle published)
+                                             :requested-size size
+                                             :backing-size backing-size
+                                             :page-count page-count
+                                             :metadata-charge metadata-charge
+                                             :total-charge total-charge
+                                             :charge charge
+                                             :allocation allocation
+                                             :attributes (dissoc request :size)}]
+                                        (swap! (:state store) assoc-in [:objects object-id] object-record)
+                                        {:ok object-record}))
                                     (do
                                       (rollback! store memory-pool provider charge allocation reservation object-id nil)
                                       {:error :publish-failure}))))
