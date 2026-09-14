@@ -51,6 +51,17 @@ jobs:
             --driver-arg -M:native \
             --driver-arg --
 
+      - name: Run requested specialization smoke
+        run: |
+          cargo run --quiet \
+            --manifest-path .forge-toolchain/Cargo.toml \
+            -p forge-build --bin forge -- \
+            run --manifest-path .forge-toolchain/examples/collections-bootstrap-smoke/forge.fdn \
+            --target main \
+            --driver clojure \
+            --driver-arg -M:native \
+            --driver-arg --
+
       - name: Run CKV with Forge HashMapStringString
         shell: bash
         run: |
