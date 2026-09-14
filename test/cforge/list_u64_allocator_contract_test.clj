@@ -1,6 +1,27 @@
 (ns cforge.list-u64-allocator-contract-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is]]
             [cforge.list-u64-model :as list]))
+
+(deftest list-u64-create-and-with-capacity
+  (let [allocator (list/make-allocator :a 4096)
+        empty-list (list/create)
+        zero (:ok (list/with-capacity allocator 0))
+        four (:ok (list/with-capacity allocator 4))]
+    (is (= {:block nil :len 0 :capacity 0} empty-list))
+    (is (= empty-list zero))
+    (is (= 0 (list/len four)))
+    (is (= 4 (list/capacity four)))
+    (is (= 32 (:live-bytes (list/allocator-state allocator))))))
+
+(deftest reserve-grows-geometrically-and-preserves-values
+  (let [allocator (list/make-allocator :a 4096)
+        a (:ok (list/push (list/create) allocator 10))
+        b (:ok (list/push a allocator 20))
+        reserved (:ok (list/reserve b allocator 17))]
+    (is (= 32 (list/capacity reserved)))
+    (is (= 2 (list/len reserved)))
+    (is (= [10N 20N]
+           (mapv #(list/get-at reserved %) (range 2))))))
 
 (deftest list-u64-grows-and-preserves-values
   (let [allocator (list/make-allocator :a 4096)]
@@ -23,7 +44,7 @@
         d (:ok (list/insert c allocator 1 15))]
     (is (= [10N 15N 20N 30N]
            (mapv #(list/get-at d %) (range (list/len d)))))
-    (let [{removed :value e :list} (assoc (list/remove-at d 2) :removed nil)]
+    (let [{removed :value e :list} (list/remove-at d 2)]
       (is (= 20N removed))
       (is (= [10N 15N 30N]
              (mapv #(list/get-at e %) (range (list/len e)))))
