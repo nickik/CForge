@@ -2,8 +2,7 @@
   (:require [clojure.java.io :as io])
   (:import [java.nio.channels FileChannel]
            [java.nio.charset StandardCharsets]
-           [java.nio.file Files Path StandardOpenOption]
-           [java.util HashSet]))
+           [java.nio.file Files Path StandardOpenOption]))
 
 (def ^:dynamic *program-args* [])
 
@@ -74,12 +73,18 @@
 
 (def ^:dynamic *lock-provider* default-lock-provider)
 
+(defn lock-acquire-exclusive [path]
+  ((:acquire-exclusive *lock-provider*) path))
+
+(defn lock-release! [token]
+  ((:release *lock-provider*) token))
+
 (defn with-exclusive-file-lock [path f]
-  (let [token ((:acquire-exclusive *lock-provider*) path)]
+  (let [token (lock-acquire-exclusive path)]
     (try
       (f)
       (finally
-        ((:release *lock-provider*) token)))))
+        (lock-release! token)))))
 
 (def default-map-provider
   {:create (fn [] (atom {}))
