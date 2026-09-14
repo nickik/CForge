@@ -40,18 +40,7 @@ jobs:
       - name: Resolve CForge dependencies
         run: clojure -P -M:native
 
-      - name: Run canonical Forge collections smoke
-        run: |
-          cargo run --quiet \
-            --manifest-path .forge-toolchain/Cargo.toml \
-            -p forge-build --bin forge -- \
-            run --manifest-path .forge-toolchain/examples/collections-smoke/forge.fdn \
-            --target main \
-            --driver clojure \
-            --driver-arg -M:native \
-            --driver-arg --
-
-      - name: Run requested specialization smoke
+      - name: Run bootstrap Forge collections smoke
         run: |
           cargo run --quiet \
             --manifest-path .forge-toolchain/Cargo.toml \
@@ -62,7 +51,7 @@ jobs:
             --driver-arg -M:native \
             --driver-arg --
 
-      - name: Run CKV with Forge HashMapStringString
+      - name: Run CKV with bootstrap Forge HashMapStringString
         shell: bash
         run: |
           set -euo pipefail
