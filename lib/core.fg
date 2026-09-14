@@ -3,6 +3,13 @@ module core;
 // Mirror of Forge's freestanding standard-library root.
 // CForge uses this file to develop multi-unit/module resolution and library
 // contract testing.
+//
+// Allocation discipline: ordinary values and collections never retain an
+// Allocator capability merely so they can allocate later. Every durable
+// allocate/reallocate/grow/clone/free operation receives the allocator
+// explicitly at that call site. Allocator/Arena/ObjectCache and explicitly
+// named pool/memory-domain managers are the exception because implementing a
+// memory domain is their purpose.
 
 pub enum PanicKind {
     Explicit,
@@ -129,6 +136,9 @@ pub struct ObjectCacheStats {
     reclaims: u64;
 }
 
+// ObjectCache is itself an explicit memory-domain manager, so retaining its
+// backing Arena capability is intentional and does not apply to ordinary data
+// structures such as List/String/HashMap.
 pub struct ObjectCache {
     arena: &mut Arena;
     spec: ObjectCacheSpec;
