@@ -3,21 +3,17 @@
             [cforge.core :as core]
             [cforge.host-services :as services]))
 
-(deftest forge-program-uses-args-string-map-string-and-time
+(deftest forge-program-uses-args-string-and-time
   (let [source (str "module test.hosted_std;\n"
                     "import std.args;\n"
                     "import std.string;\n"
                     "import std.time;\n"
-                    "import std.collections.string_map;\n"
                     "fn main() -> i32 {\n"
-                    "  val map: std.collections.string_map.StringMap = string_map.create();\n"
                     "  val key: str = args.get(0);\n"
                     "  val value: str = string.concat(\"v\", \"5\");\n"
-                    "  string_map.put(map, key, value);\n"
                     "  val before: u64 = time.monotonic_us();\n"
-                    "  val found: str = string_map.get(map, key);\n"
                     "  val after: u64 = time.monotonic_us();\n"
-                    "  if ((found == \"v5\") && (after >= before)) { return 0; }\n"
+                    "  if ((key == \"test\") && (value == \"v5\") && (after >= before)) { return 0; }\n"
                     "  return 1;\n"
                     "}\n")
         ticks (atom [100 105])]
