@@ -1,4 +1,5 @@
-(ns cforge.arena-model)
+(ns cforge.arena-model
+  (:require [clojure.set :as set]))
 
 (defn power-of-two? [n]
   (and (integer? n) (pos? n) (zero? (bit-and n (dec n)))))
@@ -176,16 +177,17 @@
 (defn object-cache-reclaim [cache]
   (let [state (:state cache)
         before @state
-        reclaimable (filter (fn [slab]
-                              (not-any? (:in-use before) (:objects slab)))
-                            (:slabs before))
-        reclaimed-objects (apply clojure.set/union #{} (map :objects reclaimable))
+        reclaimable (vec (filter (fn [slab]
+                                   (not-any? (:in-use before) (:objects slab)))
+                                 (:slabs before)))
+        reclaimed-set (set reclaimable)
+        reclaimed-objects (reduce set/union #{} (map :objects reclaimable))
         reclaimed-bytes (reduce + 0 (map #(get-in % [:block :size]) reclaimable))]
     (doseq [slab reclaimable]
       (arena-free (:arena cache) (:block slab)))
     (swap! state (fn [s]
                    (-> s
-                       (assoc :slabs (vec (remove (set reclaimable) (:slabs s))))
+                       (assoc :slabs (vec (remove reclaimed-set (:slabs s))))
                        (assoc :free (vec (remove reclaimed-objects (:free s))))
                        (update :reclaims inc))))
     reclaimed-bytes))
