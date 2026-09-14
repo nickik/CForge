@@ -19,16 +19,19 @@
   [limit]
   (when-not (valid-size? limit)
     (throw (ex-info "MemoryPool limit must be positive" {:limit limit})))
-  {:state (atom {:limit limit
-                 :charged 0
-                 :reserved 0
-                 :next-child-id 1
-                 :next-charge-id 1
-                 :children {}
-                 :charges {}
-                 :parent nil
-                 :reservation 0
-                 :revoked? false})})
+  (let [id-source (atom 1)]
+    {:state (atom {:pool-id 1
+                   :id-source id-source
+                   :limit limit
+                   :charged 0
+                   :reserved 0
+                   :next-child-id 1
+                   :next-charge-id 1
+                   :children {}
+                   :charges {}
+                   :parent nil
+                   :reservation 0
+                   :revoked? false})}))
 
 (defn pool-state [pool]
   @(:state pool))
@@ -58,8 +61,13 @@
     (> limit (available parent)) {:error :limit-exceeded}
     :else
     (let [parent-state (:state parent)
-          child-id (:next-child-id @parent-state)
-          child {:state (atom {:limit limit
+          parent-value @parent-state
+          child-id (:next-child-id parent-value)
+          id-source (:id-source parent-value)
+          pool-id (swap! id-source inc)
+          child {:state (atom {:pool-id pool-id
+                               :id-source id-source
+                               :limit limit
                                :charged 0
                                :reserved 0
                                :next-child-id 1
@@ -79,8 +87,9 @@
       {:ok child})))
 
 (defn charge!
-  "Charge bytes to a pool and return a charge token. The token is later used to
-   release exactly this charge; it is not a pointer or object handle."
+  "Charge bytes to a pool and return a pool-bound charge token. The token is
+   later used to release exactly this charge; it is not a pointer or object
+   handle."
   ([pool bytes] (charge! pool bytes :unspecified))
   ([pool bytes kind]
    (cond
@@ -89,8 +98,12 @@
      (> bytes (available pool)) {:error :limit-exceeded}
      :else
      (let [state (:state pool)
-           charge-id (:next-charge-id @state)
-           charge {:id charge-id :bytes bytes :kind kind}]
+           value @state
+           charge-id (:next-charge-id value)
+           charge {:pool-id (:pool-id value)
+                   :id charge-id
+                   :bytes bytes
+                   :kind kind}]
        (swap! state
               (fn [s]
                 (-> s
@@ -103,9 +116,11 @@
   "Release one prior charge. Double release and foreign/unknown tokens fail."
   [pool charge]
   (let [state (:state pool)
+        value @state
         charge-id (:id charge)
-        recorded (get-in @state [:charges charge-id])]
+        recorded (get-in value [:charges charge-id])]
     (cond
+      (not= (:pool-id value) (:pool-id charge)) {:error :invalid-charge}
       (nil? recorded) {:error :invalid-charge}
       (not= recorded charge) {:error :invalid-charge}
       :else
