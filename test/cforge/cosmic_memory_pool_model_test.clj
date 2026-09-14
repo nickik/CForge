@@ -56,14 +56,21 @@
     (is (pool/valid-invariants? root))
     (is (pool/valid-invariants? service))))
 
-(deftest releasing-is-tokenized
+(deftest releasing-is-tokenized-and-pool-bound
   (let [root (pool/make-root-pool 1000)
-        charge (:ok (pool/charge! root 100 :port))]
-    (is (= {:ok nil} (pool/release! root charge)))
-    (is (= :invalid-charge (:error (pool/release! root charge))))
+        a (:ok (pool/derive! root 400))
+        b (:ok (pool/derive! root 400))
+        charge-a (:ok (pool/charge! a 100 :port))
+        charge-b (:ok (pool/charge! b 100 :port))]
+    (is (= :invalid-charge (:error (pool/release! b charge-a))))
+    (is (= 100 (:charged (pool/usage b))))
+    (is (= {:ok nil} (pool/release! a charge-a)))
+    (is (= :invalid-charge (:error (pool/release! a charge-a))))
     (is (= :invalid-charge
-           (:error (pool/release! root (assoc charge :bytes 99)))))
-    (is (pool/valid-invariants? root))))
+           (:error (pool/release! b (assoc charge-b :bytes 99)))))
+    (is (= {:ok nil} (pool/release! b charge-b)))
+    (is (pool/valid-invariants? a))
+    (is (pool/valid-invariants? b))))
 
 (deftest child-destruction-requires-empty-pool
   (let [root (pool/make-root-pool 1000)
