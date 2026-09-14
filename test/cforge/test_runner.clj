@@ -6,6 +6,7 @@
             [cforge.core-test]
             [cforge.freestanding-libraries-test]
             [cforge.host-services-test]
+            [cforge.hosted-std-forge-test]
             [cforge.library-contract-test]
             [cforge.module-link-test]
             [cforge.spec-coverage-test]))
@@ -17,6 +18,7 @@
                                           'cforge.core-test
                                           'cforge.freestanding-libraries-test
                                           'cforge.host-services-test
+                                          'cforge.hosted-std-forge-test
                                           'cforge.library-contract-test
                                           'cforge.module-link-test
                                           'cforge.spec-coverage-test)]
