@@ -5,6 +5,7 @@
             [cforge.core-test]
             [cforge.freestanding-libraries-test]
             [cforge.library-contract-test]
+            [cforge.module-link-test]
             [cforge.spec-coverage-test]))
 
 (defn -main [& _]
@@ -13,5 +14,6 @@
                                           'cforge.core-test
                                           'cforge.freestanding-libraries-test
                                           'cforge.library-contract-test
+                                          'cforge.module-link-test
                                           'cforge.spec-coverage-test)]
     (System/exit (if (zero? (+ fail error)) 0 1))))
