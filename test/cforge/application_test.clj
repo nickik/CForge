@@ -10,6 +10,9 @@
 (def expected-game-output
   (slurp "examples/game_of_life.expected.txt"))
 
+(def bootstrap-library
+  [["bootstrap_support" "packages/bootstrap-support/src/lib.fg"]])
+
 (deftest while-and-mutable-assignment-execute
   (let [source "module test.loop;\nfn main() -> i32 {\n  var x: i32 = 0;\n  while (x < 5) { x = x + 1; }\n  return x - 5;\n}\n"
         result (core/run-source source)]
@@ -54,9 +57,10 @@
     (is (= "alphabeta" @captured))))
 
 (deftest game-of-life-is-a-real-runnable-forge-program
-  (testing "parser/checker/interpreter execute four generations"
+  (testing "parser/checker/interpreter execute four generations with a local package import"
     (let [result (atom nil)
-          output (with-out-str (reset! result (core/run-source game-source)))]
+          output (with-out-str
+                   (reset! result (core/run-source game-source bootstrap-library)))]
       (is (empty? (:diagnostics @result)))
       (is (= 0 (:exit @result)))
       (is (= expected-game-output output))
