@@ -4,6 +4,7 @@
             [clojure.string :as str]
             [cforge.core :as core]
             [cforge.conformance :as conformance]
+            [cforge.host-services :as services]
             [cforge.lexer :as lexer]
             [cforge.trace :as trace]))
 
@@ -12,7 +13,7 @@
        "  cforge --tokens [--pprint] [--trace] FILE\n"
        "  cforge --ast [--pprint] [--trace] [--library NAME=PATH]... FILE\n"
        "  cforge --check [--pprint] [--trace] [--library NAME=PATH]... FILE\n"
-       "  cforge --run [--pprint] [--trace] [--library NAME=PATH]... FILE\n"
+       "  cforge --run [--pprint] [--trace] [--library NAME=PATH]... FILE [-- ARGS...]\n"
        "  cforge --conformance [--pprint] [--trace] SUITE.FDN\n"))
 
 (defn- parse-library [spec]
@@ -27,39 +28,48 @@
          pretty? false
          trace? false
          libraries []
+         program-args []
          positional []]
     (if-let [arg (first args)]
       (cond
         (= arg "--")
-        (recur (next args) mode pretty? trace? libraries positional)
+        (recur nil mode pretty? trace? libraries (vec (next args)) positional)
 
         (contains? #{"--tokens" "--ast" "--check" "--run" "--conformance"} arg)
         (if mode
           (throw (ex-info "exactly one mode is required" {:usage true}))
-          (recur (next args) (keyword (subs arg 2)) pretty? trace? libraries positional))
+          (recur (next args) (keyword (subs arg 2)) pretty? trace? libraries program-args positional))
 
         (= arg "--pprint")
-        (recur (next args) mode true trace? libraries positional)
+        (recur (next args) mode true trace? libraries program-args positional)
 
         (= arg "--trace")
-        (recur (next args) mode pretty? true libraries positional)
+        (recur (next args) mode pretty? true libraries program-args positional)
 
         (= arg "--library")
         (let [spec (second args)]
           (when-not spec
             (throw (ex-info "--library requires NAME=PATH" {:usage true})))
           (recur (nnext args) mode pretty? trace?
-                 (conj libraries (parse-library spec)) positional))
+                 (conj libraries (parse-library spec)) program-args positional))
 
         (str/starts-with? arg "--library=")
         (recur (next args) mode pretty? trace?
-               (conj libraries (parse-library (subs arg (count "--library=")))) positional)
+               (conj libraries (parse-library (subs arg (count "--library="))))
+               program-args positional)
+
+        (= arg "--program-arg")
+        (let [value (second args)]
+          (when-not value
+            (throw (ex-info "--program-arg requires a value" {:usage true})))
+          (recur (nnext args) mode pretty? trace? libraries
+                 (conj program-args value) positional))
 
         (str/starts-with? arg "--")
         (throw (ex-info (str "unknown option " arg) {:usage true}))
 
         :else
-        (recur (next args) mode pretty? trace? libraries (conj positional arg)))
+        (recur (next args) mode pretty? trace? libraries program-args (conj positional arg)))
       (do
         (when-not mode
           (throw (ex-info "exactly one mode is required" {:usage true})))
@@ -69,12 +79,13 @@
          :path (first positional)
          :pretty? pretty?
          :trace? trace?
-         :libraries libraries}))))
+         :libraries libraries
+         :program-args program-args}))))
 
 (defn- print-data [x pretty?]
   (if pretty? (pprint/pprint x) (prn x)))
 
-(defn- run-command [{:keys [mode path pretty? libraries]}]
+(defn- run-command [{:keys [mode path pretty? libraries program-args]}]
   (case mode
     :tokens
     (let [r (lexer/lex (slurp path))]
@@ -92,12 +103,13 @@
       (if (seq (:diagnostics r)) 1 0))
 
     :run
-    (let [r (core/run-source (slurp path) libraries)]
-      (if (seq (:diagnostics r))
-        (do (print-data (select-keys r [:diagnostics :phase]) pretty?) 1)
-        (do
-          (when pretty? (print-data (select-keys r [:value :exit]) true))
-          (:exit r))))
+    (binding [services/*program-args* program-args]
+      (let [r (core/run-source (slurp path) libraries)]
+        (if (seq (:diagnostics r))
+          (do (print-data (select-keys r [:diagnostics :phase]) pretty?) 1)
+          (do
+            (when pretty? (print-data (select-keys r [:value :exit]) true))
+            (:exit r)))))
 
     :conformance
     (let [r (conformance/run-suite path)]
