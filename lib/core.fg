@@ -52,12 +52,60 @@ pub struct MemoryBlock {
     align: usize;
 }
 
+pub struct ArenaOps {
+    alloc: fn(*void, AllocRequest) -> Result[MemoryBlock, AllocError];
+    free: fn(*void, MemoryBlock) -> void;
+    reclaim: fn(*void, usize) -> usize;
+}
+
 pub struct Arena {
-    provider: *void;
+    context: *void;
+    ops: &ArenaOps;
+}
+
+pub fn arena_alloc(
+    arena: &mut Arena,
+    request: AllocRequest
+) -> Result[MemoryBlock, AllocError] {
+    return arena.ops.alloc(arena.context, request);
+}
+
+pub fn arena_free(arena: &mut Arena, block: MemoryBlock) -> void {
+    arena.ops.free(arena.context, block);
+}
+
+pub fn arena_reclaim(arena: &mut Arena, target_bytes: usize) -> usize {
+    return arena.ops.reclaim(arena.context, target_bytes);
+}
+
+pub struct AllocatorOps {
+    alloc: fn(*void, AllocRequest) -> Result[MemoryBlock, AllocError];
+    free: fn(*void, MemoryBlock) -> void;
+    resize: fn(*void, MemoryBlock, usize) -> Result[MemoryBlock, AllocError];
 }
 
 pub struct Allocator {
-    arena: &mut Arena;
+    context: *void;
+    ops: &AllocatorOps;
+}
+
+pub fn allocator_alloc(
+    allocator: &mut Allocator,
+    request: AllocRequest
+) -> Result[MemoryBlock, AllocError] {
+    return allocator.ops.alloc(allocator.context, request);
+}
+
+pub fn allocator_free(allocator: &mut Allocator, block: MemoryBlock) -> void {
+    allocator.ops.free(allocator.context, block);
+}
+
+pub fn allocator_resize(
+    allocator: &mut Allocator,
+    block: MemoryBlock,
+    new_size: usize
+) -> Result[MemoryBlock, AllocError] {
+    return allocator.ops.resize(allocator.context, block, new_size);
 }
 
 pub struct ObjectCacheSpec {
