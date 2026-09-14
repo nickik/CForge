@@ -30,17 +30,26 @@
    ["string" "byte_len"] {:import ["std" "string"] :args [:str] :return :usize :builtin :std.string/byte-len}
    ["string" "byte_at"] {:import ["std" "string"] :args [:str :usize] :return :usize :builtin :std.string/byte-at}
 
+   ["raw_u8" "create"] {:import ["std" "collections" "raw_u8"] :args [:usize] :return :usize :builtin :std.raw-u8/create}
+   ["raw_u8" "slots"] {:import ["std" "collections" "raw_u8"] :args [:usize] :return :usize :builtin :std.raw-u8/slots}
+   ["raw_u8" "get"] {:import ["std" "collections" "raw_u8"] :args [:usize :usize] :return :u8 :builtin :std.raw-u8/get}
+   ["raw_u8" "set"] {:import ["std" "collections" "raw_u8"] :args [:usize :usize :u8] :return :void :builtin :std.raw-u8/set}
+   ["raw_u8" "resize"] {:import ["std" "collections" "raw_u8"] :args [:usize :usize] :return :void :builtin :std.raw-u8/resize}
+   ["raw_u8" "swap"] {:import ["std" "collections" "raw_u8"] :args [:usize :usize] :return :void :builtin :std.raw-u8/swap}
+
    ["raw_u64" "create"] {:import ["std" "collections" "raw_u64"] :args [:usize] :return :usize :builtin :std.raw-u64/create}
    ["raw_u64" "slots"] {:import ["std" "collections" "raw_u64"] :args [:usize] :return :usize :builtin :std.raw-u64/slots}
    ["raw_u64" "get"] {:import ["std" "collections" "raw_u64"] :args [:usize :usize] :return :u64 :builtin :std.raw-u64/get}
    ["raw_u64" "set"] {:import ["std" "collections" "raw_u64"] :args [:usize :usize :u64] :return :void :builtin :std.raw-u64/set}
    ["raw_u64" "resize"] {:import ["std" "collections" "raw_u64"] :args [:usize :usize] :return :void :builtin :std.raw-u64/resize}
+   ["raw_u64" "swap"] {:import ["std" "collections" "raw_u64"] :args [:usize :usize] :return :void :builtin :std.raw-u64/swap}
 
    ["raw_usize" "create"] {:import ["std" "collections" "raw_usize"] :args [:usize] :return :usize :builtin :std.raw-usize/create}
    ["raw_usize" "slots"] {:import ["std" "collections" "raw_usize"] :args [:usize] :return :usize :builtin :std.raw-usize/slots}
    ["raw_usize" "get"] {:import ["std" "collections" "raw_usize"] :args [:usize :usize] :return :usize :builtin :std.raw-usize/get}
    ["raw_usize" "set"] {:import ["std" "collections" "raw_usize"] :args [:usize :usize :usize] :return :void :builtin :std.raw-usize/set}
    ["raw_usize" "resize"] {:import ["std" "collections" "raw_usize"] :args [:usize :usize] :return :void :builtin :std.raw-usize/resize}
+   ["raw_usize" "swap"] {:import ["std" "collections" "raw_usize"] :args [:usize :usize] :return :void :builtin :std.raw-usize/swap}
 
    ["raw_string" "create"] {:import ["std" "collections" "raw_string"] :args [:usize] :return :usize :builtin :std.raw-string/create}
    ["raw_string" "slots"] {:import ["std" "collections" "raw_string"] :args [:usize] :return :usize :builtin :std.raw-string/slots}
@@ -102,17 +111,26 @@
     :std.string/byte-at (let [bytes (.getBytes ^String (first args) java.nio.charset.StandardCharsets/UTF_8)]
                           (bigint (bit-and 0xff (aget bytes (int (second args))))))
 
+    :std.raw-u8/create (storage/create-u8 (first args))
+    :std.raw-u8/slots (storage/slots-u8 (first args))
+    :std.raw-u8/get (storage/get-u8 (nth args 0) (nth args 1))
+    :std.raw-u8/set (do (storage/set-u8! (nth args 0) (nth args 1) (nth args 2)) nil)
+    :std.raw-u8/resize (do (storage/resize-u8! (nth args 0) (nth args 1)) nil)
+    :std.raw-u8/swap (do (storage/swap-u8! (nth args 0) (nth args 1)) nil)
+
     :std.raw-u64/create (storage/create-u64 (first args))
     :std.raw-u64/slots (storage/slots-u64 (first args))
     :std.raw-u64/get (storage/get-u64 (nth args 0) (nth args 1))
     :std.raw-u64/set (do (storage/set-u64! (nth args 0) (nth args 1) (nth args 2)) nil)
     :std.raw-u64/resize (do (storage/resize-u64! (nth args 0) (nth args 1)) nil)
+    :std.raw-u64/swap (do (storage/swap-u64! (nth args 0) (nth args 1)) nil)
 
     :std.raw-usize/create (storage/create-usize (first args))
     :std.raw-usize/slots (storage/slots-usize (first args))
     :std.raw-usize/get (storage/get-usize (nth args 0) (nth args 1))
     :std.raw-usize/set (do (storage/set-usize! (nth args 0) (nth args 1) (nth args 2)) nil)
     :std.raw-usize/resize (do (storage/resize-usize! (nth args 0) (nth args 1)) nil)
+    :std.raw-usize/swap (do (storage/swap-usize! (nth args 0) (nth args 1)) nil)
 
     :std.raw-string/create (storage/create-string (first args))
     :std.raw-string/slots (storage/slots-string (first args))
