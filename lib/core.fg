@@ -1,0 +1,32 @@
+module core;
+
+// Mirror of Forge's initial freestanding standard-library root.
+// CForge will use this file to develop multi-unit/module resolution.
+
+pub fn min_i32(a: i32, b: i32) -> i32 {
+    if (a < b) {
+        return a;
+    }
+    return b;
+}
+
+pub fn max_i32(a: i32, b: i32) -> i32 {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
+
+pub fn min_u32(a: u32, b: u32) -> u32 {
+    if (a < b) {
+        return a;
+    }
+    return b;
+}
+
+pub fn max_u32(a: u32, b: u32) -> u32 {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
