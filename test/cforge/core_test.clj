@@ -203,8 +203,8 @@
   (is (= :parse/unsupported-syntax
          (diagnostic-category "module test; struct Point { x: i32; }" :parse))))
 
-(deftest calls-parse-but-are-not-silently-executed
-  (is (= :type/unsupported
-         (diagnostic-category
-          "module test; fn helper() -> i32 { return 1; } fn main() -> i32 { return helper(); }"
-          :check))))
+(deftest local-function-calls-are-checked-and-executed
+  (let [result (core/run-source
+                "module test; fn helper() -> i32 { return 1; } fn main() -> i32 { return helper() - 1; }")]
+    (is (empty? (:diagnostics result)) (pr-str (:diagnostics result)))
+    (is (= 0 (:exit result)))))
