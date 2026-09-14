@@ -63,12 +63,12 @@ jobs:
             --driver-arg -M:native \
             --driver-arg --
 
-      - name: Run Forge collections smoke through Clojure driver
+      - name: Run bootstrap Forge collections smoke through Clojure driver
         run: |
           cargo run --quiet \
             --manifest-path .forge-toolchain/Cargo.toml \
             -p forge-build --bin forge -- \
-            run --manifest-path .forge-toolchain/examples/collections-smoke/forge.fdn \
+            run --manifest-path .forge-toolchain/examples/collections-bootstrap-smoke/forge.fdn \
             --target main \
             --driver clojure \
             --driver-arg -M:native \
@@ -167,12 +167,12 @@ jobs:
             test --manifest-path forge.fdn \
             --driver ./target/cforge
 
-      - name: Run Forge collections smoke through native CForge
+      - name: Run bootstrap Forge collections smoke through native CForge
         run: |
           cargo run --quiet \
             --manifest-path .forge-toolchain/Cargo.toml \
             -p forge-build --bin forge -- \
-            run --manifest-path .forge-toolchain/examples/collections-smoke/forge.fdn \
+            run --manifest-path .forge-toolchain/examples/collections-bootstrap-smoke/forge.fdn \
             --target main \
             --driver ./target/cforge
 
