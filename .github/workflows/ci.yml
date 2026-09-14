@@ -63,6 +63,40 @@ jobs:
             --driver-arg -M:native \
             --driver-arg --
 
+      - name: Run Forge CKV through Clojure driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB="$(mktemp)"
+          cleanup() { rm -f "$DB" "$DB.lock"; }
+          trap cleanup EXIT
+
+          run_ckv() {
+            cargo run --quiet \
+              --manifest-path .forge-toolchain/Cargo.toml \
+              -p forge-build --bin forge -- \
+              run --manifest-path .forge-toolchain/examples/ckv/forge.fdn \
+              --target ckv \
+              --driver clojure \
+              --driver-arg -M:native \
+              --driver-arg -- \
+              -- "$@"
+          }
+
+          SET1="$(run_ckv --database-file "$DB" set test 5)"
+          echo "$SET1" | grep -Eq '^access: [0-9]+ us$'
+
+          GET1="$(run_ckv --database-file "$DB" get test)"
+          test "$(printf '%s\n' "$GET1" | sed -n '1p')" = "5"
+          printf '%s\n' "$GET1" | sed -n '2p' | grep -Eq '^access: [0-9]+ us$'
+
+          SET2="$(run_ckv --database-file "$DB" set test 7)"
+          echo "$SET2" | grep -Eq '^access: [0-9]+ us$'
+
+          GET2="$(run_ckv --database-file "$DB" get test)"
+          test "$(printf '%s\n' "$GET2" | sed -n '1p')" = "7"
+          test "$(grep -c $'^test\\t' "$DB")" -eq 2
+
   native-image:
     name: GraalVM native image
     runs-on: ubuntu-latest
@@ -112,6 +146,38 @@ jobs:
             -p forge-build --bin forge -- \
             test --manifest-path forge.fdn \
             --driver ./target/cforge
+
+      - name: Run Forge CKV through native CForge
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB="$(mktemp)"
+          cleanup() { rm -f "$DB" "$DB.lock"; }
+          trap cleanup EXIT
+
+          run_ckv() {
+            cargo run --quiet \
+              --manifest-path .forge-toolchain/Cargo.toml \
+              -p forge-build --bin forge -- \
+              run --manifest-path .forge-toolchain/examples/ckv/forge.fdn \
+              --target ckv \
+              --driver ./target/cforge \
+              -- "$@"
+          }
+
+          SET1="$(run_ckv --database-file "$DB" set test 5)"
+          echo "$SET1" | grep -Eq '^access: [0-9]+ us$'
+
+          GET1="$(run_ckv --database-file "$DB" get test)"
+          test "$(printf '%s\n' "$GET1" | sed -n '1p')" = "5"
+          printf '%s\n' "$GET1" | sed -n '2p' | grep -Eq '^access: [0-9]+ us$'
+
+          SET2="$(run_ckv --database-file "$DB" set test 7)"
+          echo "$SET2" | grep -Eq '^access: [0-9]+ us$'
+
+          GET2="$(run_ckv --database-file "$DB" get test)"
+          test "$(printf '%s\n' "$GET2" | sed -n '1p')" = "7"
+          test "$(grep -c $'^test\\t' "$DB")" -eq 2
 
       - name: Upload native executable
         uses: actions/upload-artifact@v4
