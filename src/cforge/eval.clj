@@ -14,12 +14,12 @@
     nil))
 
 (defn- width-for [t]
-  (case t
-    (:i8 :u8) 8
-    (:i16 :u16) 16
-    (:i32 :u32) 32
-    (:i64 :u64) 64
-    nil))
+  (cond
+    (contains? #{:i8 :u8} t) 8
+    (contains? #{:i16 :u16} t) 16
+    (contains? #{:i32 :u32} t) 32
+    (contains? #{:i64 :u64} t) 64
+    :else nil))
 
 (defn- checked-int [t n span]
   (if-let [[lo hi] (range-for t)]
