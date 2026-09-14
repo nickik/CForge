@@ -17,9 +17,9 @@
         reservation (:ok (oh/reserve-slot! handles))
         published (:ok (oh/publish! handles objects reservation (:id object)))]
     (is (= {:ok (:id object)} (oh/lookup handles (:handle published))))
+    (is (= :live (:state (oh/object objects (:id object)))))
     (is (= 1 (oh/live-handle-count handles)))
-    (is (= 0 (oh/reserved-handle-count handles)))
-    (is (:ok (oh/mark-live! objects (:id object))))))
+    (is (= 0 (oh/reserved-handle-count handles)))))
 
 (deftest publication-validates-object-identity-and-state
   (let [objects (oh/make-object-table)
@@ -31,7 +31,7 @@
     (let [object (:ok (oh/create-object! objects :memory-object {}))
           _ (oh/mark-live! objects (:id object))
           reservation-b (:ok (oh/reserve-slot! handles))]
-      (is (= :invalid-object
+      (is (= :wrong-object-state
              (:error (oh/publish! handles objects reservation-b (:id object)))))
       (is (= {:ok nil} (oh/cancel-reservation! handles reservation-b))))))
 
