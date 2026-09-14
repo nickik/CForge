@@ -27,6 +27,9 @@ pub struct PanicInfo {
     location: PanicLocation?;
 }
 
+// The final environment supplies exactly one non-returning panic provider:
+//   __forge_panic(info: &PanicInfo) -> never
+
 pub enum AllocError {
     OutOfMemory,
     InvalidSize,
@@ -185,3 +188,12 @@ pub fn object_stride(spec: &ObjectCacheSpec) -> usize {
 pub fn objects_per_slab(spec: &ObjectCacheSpec) -> usize {
     return spec.slab_size / object_stride(spec);
 }
+
+// Object-cache operations are part of the core contract even though their
+// complete raw-pointer implementation is still represented by the executable
+// semantic model in CForge:
+//   object_cache_alloc
+//   object_cache_free
+//   object_cache_reclaim
+//
+// Primitive allocation never implicitly panics on OutOfMemory.
