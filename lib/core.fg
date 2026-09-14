@@ -1,7 +1,61 @@
 module core;
 
-// Mirror of Forge's initial freestanding standard-library root.
+// Mirror of Forge's freestanding standard-library root.
 // CForge will use this file to develop multi-unit/module resolution.
+
+pub enum PanicKind {
+    Explicit,
+    Assertion,
+    Bounds,
+    IntegerOverflow,
+    DivideByZero,
+    InvalidShift,
+    Unreachable,
+    AllocationFailure,
+}
+
+pub struct PanicLocation {
+    file: str;
+    line: u32;
+    column: u32;
+}
+
+pub struct PanicInfo {
+    kind: PanicKind;
+    message: str;
+    location: PanicLocation?;
+}
+
+pub enum AllocError {
+    OutOfMemory,
+    InvalidSize,
+    InvalidAlignment,
+    ResourceLimit,
+    CorruptState,
+}
+
+pub enum AllocWait {
+    MayWait,
+    NoWait,
+}
+
+pub struct AllocRequest {
+    size: usize;
+    align: usize;
+    wait: AllocWait;
+}
+
+pub struct MemoryBlock {
+    data: *byte;
+    size: usize;
+    align: usize;
+}
+
+pub struct ObjectCacheSpec {
+    object_size: usize;
+    object_align: usize;
+    slab_size: usize;
+}
 
 pub fn min_i32(a: i32, b: i32) -> i32 {
     if (a < b) {
@@ -29,4 +83,15 @@ pub fn max_u32(a: u32, b: u32) -> u32 {
         return a;
     }
     return b;
+}
+
+pub fn is_power_of_two_usize(value: usize) -> bool {
+    if (value == 0) {
+        return false;
+    }
+    return (value & (value - 1)) == 0;
+}
+
+pub fn valid_alignment(align: usize) -> bool {
+    return is_power_of_two_usize(align);
 }
