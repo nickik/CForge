@@ -1,12 +1,17 @@
 module examples.game_of_life;
 
 import std.console;
+import bootstrap_support;
 
 // Conway's Game of Life on an 8x8 toroidal board.
 // The update/render structure is adapted from simple console C implementations,
 // including Bruce Hill's MIT-licensed conway example, but rewritten as a compact
 // u64 bitboard so it fits the current Forge bootstrap language surface.
 fn main() -> i32 {
+    // This call deliberately crosses a local Forge package boundary. The Forge
+    // build system supplies bootstrap_support to CForge from forge.fdn.
+    val package_probe: u32 = bootstrap_support.identity_u32(42);
+
     // Glider seed:
     // .#......
     // ..#.....
