@@ -11,10 +11,17 @@
   (slurp "examples/game_of_life.expected.txt"))
 
 (deftest while-and-mutable-assignment-execute
-  (let [source "module test.loop;\nfn main() -> i32 {\n  var x: i32 = 0;\n  while (x < 5) { x += 1; }\n  return x - 5;\n}\n"
+  (let [source "module test.loop;\nfn main() -> i32 {\n  var x: i32 = 0;\n  while (x < 5) { x = x + 1; }\n  return x - 5;\n}\n"
         result (core/run-source source)]
     (is (empty? (:diagnostics result)))
     (is (= 0 (:exit result)))))
+
+(deftest compound-assignment-is-not-forge-v1
+  (let [source "module test.compound;\nfn main() -> i32 {\n  var x: i32 = 0;\n  x += 1;\n  return x;\n}\n"
+        result (core/parse-source source)]
+    (is (seq (:diagnostics result)))
+    (is (= :parse/unexpected-token
+           (get-in result [:diagnostics 0 :category])))))
 
 (deftest immutable-assignment-is-rejected
   (let [source "module test.bad;\nfn main() -> i32 {\n  val x: i32 = 0;\n  x = 1;\n  return 0;\n}\n"
