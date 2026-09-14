@@ -193,21 +193,49 @@
     :block (qualify-local-block stmt module local-functions)
     stmt))
 
-(defn- qualified-library-declarations [module library]
+(defn- local-library-imports [library libraries]
+  (set
+   (for [segments (mapcat :names (get-in library [:ast :imports]))
+         :when (and (= 1 (count segments))
+                    (contains? libraries (first segments)))]
+     (first segments))))
+
+(defn- linked-module-closure [initial libraries]
+  (letfn [(visit [module seen]
+            (if (contains? seen module)
+              seen
+              (let [seen' (conj seen module)
+                    deps (if-let [library (get libraries module)]
+                           (local-library-imports library libraries)
+                           #{})]
+                (reduce (fn [state dependency]
+                          (visit dependency state))
+                        seen'
+                        deps))))]
+    (reduce (fn [seen module]
+              (if (contains? libraries module)
+                (visit module seen)
+                seen))
+            #{}
+            initial)))
+
+(defn- qualified-library-declarations [module library libraries]
   (let [functions (:all-functions library)
-        local-names (set (keys functions))]
+        local-names (set (keys functions))
+        imported-modules (local-library-imports library libraries)]
     (mapv (fn [[name function]]
-            (-> function
-                (assoc :name (str module "." name)
-                       :linked-module module)
-                (update :body #(qualify-local-block % module local-names))))
+            (let [rewritten-body (rewrite-block (:body function) libraries imported-modules)]
+              (-> function
+                  (assoc :name (str module "." name)
+                         :linked-module module
+                         :body (qualify-local-block rewritten-body module local-names)))))
           functions)))
 
 (defn link-root
-  "Resolve root imports against supplied libraries and link dependency functions
-   into the root compilation unit. Only public functions may be referenced from
-   the root module, but private dependency helpers are retained under qualified
-   names so linked library implementations can call them normally."
+  "Resolve root imports against supplied libraries and link the full transitive
+   local-library closure into the root compilation unit. Only public functions
+   may be referenced across module boundaries; private helpers are retained
+   under qualified internal names for same-library calls."
   [root-ast libraries]
   (let [root-imports (:imports root-ast)
         import-names (set (mapcat :names root-imports))
@@ -222,9 +250,10 @@
                         {:diagnostic (diagnostic :module/missing
                                                  (str "no library supplied for import " module)
                                                  (:span root-ast))}))))
-    (let [linked-modules (filter #(contains? libraries %) imported-modules)
+    (let [linked-modules (sort (linked-module-closure imported-modules libraries))
           library-imports (mapcat #(get-in libraries [% :ast :imports]) linked-modules)
-          linked-decls (mapcat #(qualified-library-declarations % (get libraries %)) linked-modules)
+          linked-decls (mapcat #(qualified-library-declarations % (get libraries %) libraries)
+                               linked-modules)
           rewritten-root (mapv (fn [decl]
                                  (if (= :function-decl (:node decl))
                                    (assoc decl :body (rewrite-block (:body decl) libraries imported-modules))
