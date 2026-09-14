@@ -16,6 +16,25 @@
     (is (empty? (:diagnostics result)))
     (is (= 0 (:exit result)))))
 
+(deftest qualified-imported-public-function-runs
+  (testing "multi-segment Forge module names link and execute"
+    (let [library-file (java.io.File/createTempFile "cforge-qualified-module" ".fg")
+          _ (.deleteOnExit library-file)
+          _ (spit library-file
+                  (str "module cosmic.kernel.memory.test_support;\n"
+                       "pub fn identity_u32(value: u32) -> u32 { return value; }\n"))
+          source (str "module test.qualified_cross_package;\n"
+                      "import cosmic.kernel.memory.test_support;\n"
+                      "fn main() -> i32 {\n"
+                      "  val value: u32 = cosmic.kernel.memory.test_support.identity_u32(77);\n"
+                      "  if (value == 77) { return 0; } else { return 1; }\n"
+                      "}\n")
+          result (core/run-source source
+                                  [["cosmic.kernel.memory.test_support"
+                                    (.getAbsolutePath library-file)]])]
+      (is (empty? (:diagnostics result)))
+      (is (= 0 (:exit result))))))
+
 (deftest imported-function-with-local-state-and-loop-runs
   (testing "cross-package calls are real calls, not one-expression inlining"
     (let [source (str "module test.cross_package_loop;\n"
