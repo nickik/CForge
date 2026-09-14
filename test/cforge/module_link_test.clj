@@ -28,6 +28,18 @@
       (is (empty? (:diagnostics result)))
       (is (= 0 (:exit result))))))
 
+(deftest imported-public-function-can-call-private-helper
+  (testing "private dependency helpers are linked internally but not exported"
+    (let [source (str "module test.private_helper;\n"
+                      "import bootstrap_support;\n"
+                      "fn main() -> i32 {\n"
+                      "  val value: u32 = bootstrap_support.through_private_u32(37);\n"
+                      "  if (value == 37) { return 0; } else { return 1; }\n"
+                      "}\n")
+          result (core/run-source source bootstrap-library)]
+      (is (empty? (:diagnostics result)))
+      (is (= 0 (:exit result))))))
+
 (deftest local-function-call-runs
   (let [source (str "module test.local_call;\n"
                     "fn add_one(value: u32) -> u32 { return value + 1; }\n"
