@@ -4,6 +4,7 @@
             [cforge.arena-provider-test]
             [cforge.ckv-test]
             [cforge.core-test]
+            [cforge.cosmic-memory-pool-model-test]
             [cforge.freestanding-libraries-test]
             [cforge.host-services-test]
             [cforge.hosted-std-forge-test]
@@ -17,6 +18,7 @@
                                           'cforge.arena-provider-test
                                           'cforge.ckv-test
                                           'cforge.core-test
+                                          'cforge.cosmic-memory-pool-model-test
                                           'cforge.freestanding-libraries-test
                                           'cforge.host-services-test
                                           'cforge.hosted-std-forge-test
