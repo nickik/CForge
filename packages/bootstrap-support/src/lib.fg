@@ -1,0 +1,7 @@
+module bootstrap_support;
+
+// Minimal local-path package used to exercise Forge build graph resolution.
+// It intentionally has no hosted dependencies.
+pub fn identity_u32(value: u32) -> u32 {
+    return value;
+}
