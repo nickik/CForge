@@ -5,3 +5,7 @@ module bootstrap_support;
 pub fn identity_u32(value: u32) -> u32 {
     return value;
 }
+
+fn private_u32(value: u32) -> u32 {
+    return value;
+}
