@@ -53,12 +53,7 @@
    :percent [100 101 :rem]})
 
 (def assignment-kinds
-  {:eq :assign
-   :plus-eq :add-assign
-   :minus-eq :sub-assign
-   :star-eq :mul-assign
-   :slash-eq :div-assign
-   :percent-eq :rem-assign})
+  {:eq :assign})
 
 (def prefix-ops
   {:bang :not :minus :neg :plus :pos :tilde :bit-not
