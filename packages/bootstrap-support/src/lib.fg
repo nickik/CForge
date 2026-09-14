@@ -17,3 +17,7 @@ pub fn count_to(value: u32) -> u32 {
 fn private_u32(value: u32) -> u32 {
     return value;
 }
+
+pub fn through_private_u32(value: u32) -> u32 {
+    return private_u32(value);
+}
