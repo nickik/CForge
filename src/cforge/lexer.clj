@@ -2,7 +2,7 @@
   (:require [cforge.trace :as trace]))
 
 (def keywords
-  {"module" :module "import" :import "fn" :fn "nfn" :nfn
+  {"module" :module "import" :import "pub" :pub "fn" :fn "nfn" :nfn
    "val" :val "var" :var "const" :const "struct" :struct
    "enum" :enum "tagged" :tagged "distinct" :distinct "type" :type
    "return" :return "tail" :tail "if" :if "else" :else "while" :while
