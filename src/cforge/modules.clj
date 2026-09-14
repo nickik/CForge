@@ -1,6 +1,5 @@
 (ns cforge.modules
   (:require [clojure.string :as str]
-            [clojure.walk :as walk]
             [cforge.lexer :as lexer]
             [cforge.parser :as parser]))
 
@@ -29,8 +28,7 @@
           [(:name decl) decl])))
 
 (defn load-libraries
-  "Load NAME=PATH library roots and return module metadata keyed by the source module name.
-   Package names may contain '-' while Forge module identifiers use '_'."
+  "Load NAME=PATH library roots and return module metadata keyed by source module name."
   [library-specs]
   (reduce
    (fn [libraries [logical-name path]]
@@ -57,42 +55,18 @@
    {}
    library-specs))
 
-(defn- simple-return-expression [function]
-  (let [statements (get-in function [:body :statements])]
-    (when (and (= 1 (count statements))
-               (= :return (:node (first statements)))
-               (some? (:expr (first statements))))
-      (:expr (first statements)))))
+(declare rewrite-expr rewrite-statement)
 
-(defn- substitute-params [expr params args]
-  (let [bindings (zipmap (map :name params) args)]
-    (walk/postwalk
-     (fn [node]
-       (if (and (map? node)
-                (= :name (:node node))
-                (contains? bindings (:name node)))
-         (get bindings (:name node))
-         node))
-     expr)))
-
-(declare expand-expr)
-
-(defn- imported-call [expr libraries imported-modules]
+(defn- imported-call [expr imported-modules]
   (let [callee (:callee expr)]
     (when (and (= :member (:node callee))
                (= :name (get-in callee [:target :node])))
-      (let [module (get-in callee [:target :name])
-            function (:member callee)]
+      (let [module (get-in callee [:target :name])]
         (when (contains? imported-modules module)
-          [module function])))))
+          [module (:member callee)])))))
 
-(defn- expand-imported-call [expr libraries imported-modules depth]
-  (when (> depth 64)
-    (throw (ex-info "import expansion depth exceeded"
-                    {:diagnostic (diagnostic :module/expansion-depth
-                                             "imported function expansion exceeded 64 calls"
-                                             (:span expr))})))
-  (if-let [[module function-name] (imported-call expr libraries imported-modules)]
+(defn- rewrite-imported-call [expr libraries imported-modules]
+  (when-let [[module function-name] (imported-call expr imported-modules)]
     (let [library (get libraries module)
           function (get-in library [:functions function-name])]
       (when-not library
@@ -113,70 +87,73 @@
                                                       " expects " (count (:params function))
                                                       " arguments, found " (count (:args expr)))
                                                  (:span expr))})))
-      (let [body-expr (simple-return-expression function)]
-        (when-not body-expr
-          (throw (ex-info "bootstrap imported function is not inlineable"
-                          {:diagnostic (diagnostic :module/bootstrap-call
-                                                   (str module "." function-name
-                                                        " must currently consist of one return expression")
-                                                   (:span function))})))
-        (let [expanded-args (mapv #(expand-expr % libraries imported-modules (inc depth))
-                                  (:args expr))
-              substituted (substitute-params body-expr (:params function) expanded-args)]
-          (expand-expr (assoc substituted :span (:span expr))
-                       libraries imported-modules (inc depth)))))
-    nil))
+      (assoc expr
+             :callee {:node :name
+                      :name (str module "." function-name)
+                      :span (get-in expr [:callee :span])}
+             :args (mapv #(rewrite-expr % libraries imported-modules) (:args expr))))))
 
-(defn expand-expr [expr libraries imported-modules depth]
+(defn rewrite-expr [expr libraries imported-modules]
   (if-not (map? expr)
     expr
     (or (when (= :call (:node expr))
-          (expand-imported-call expr libraries imported-modules depth))
+          (rewrite-imported-call expr libraries imported-modules))
         (case (:node expr)
-          :call (assoc expr :callee (expand-expr (:callee expr) libraries imported-modules depth)
-                            :args (mapv #(expand-expr % libraries imported-modules depth) (:args expr)))
+          :call (assoc expr
+                       :callee (rewrite-expr (:callee expr) libraries imported-modules)
+                       :args (mapv #(rewrite-expr % libraries imported-modules) (:args expr)))
           :binary (assoc expr
-                         :left (expand-expr (:left expr) libraries imported-modules depth)
-                         :right (expand-expr (:right expr) libraries imported-modules depth))
-          :unary (assoc expr :expr (expand-expr (:expr expr) libraries imported-modules depth))
-          :member (assoc expr :target (expand-expr (:target expr) libraries imported-modules depth))
+                         :left (rewrite-expr (:left expr) libraries imported-modules)
+                         :right (rewrite-expr (:right expr) libraries imported-modules))
+          :unary (assoc expr :expr (rewrite-expr (:expr expr) libraries imported-modules))
+          :member (assoc expr :target (rewrite-expr (:target expr) libraries imported-modules))
           :index (assoc expr
-                        :target (expand-expr (:target expr) libraries imported-modules depth)
-                        :index (expand-expr (:index expr) libraries imported-modules depth))
+                        :target (rewrite-expr (:target expr) libraries imported-modules)
+                        :index (rewrite-expr (:index expr) libraries imported-modules))
           expr))))
 
-(declare expand-statement)
-
-(defn- expand-block [block libraries imported-modules]
+(defn- rewrite-block [block libraries imported-modules]
   (assoc block :statements
-         (mapv #(expand-statement % libraries imported-modules) (:statements block))))
+         (mapv #(rewrite-statement % libraries imported-modules) (:statements block))))
 
-(defn expand-statement [stmt libraries imported-modules]
+(defn rewrite-statement [stmt libraries imported-modules]
   (case (:node stmt)
-    :value-decl (assoc stmt :init (expand-expr (:init stmt) libraries imported-modules 0))
-    :assignment (assoc stmt :target (expand-expr (:target stmt) libraries imported-modules 0)
-                            :value (expand-expr (:value stmt) libraries imported-modules 0))
-    :return (cond-> stmt (:expr stmt) (assoc :expr (expand-expr (:expr stmt) libraries imported-modules 0)))
-    :expression-statement (assoc stmt :expr (expand-expr (:expr stmt) libraries imported-modules 0))
+    :value-decl (assoc stmt :init (rewrite-expr (:init stmt) libraries imported-modules))
+    :assignment (assoc stmt
+                       :target (rewrite-expr (:target stmt) libraries imported-modules)
+                       :value (rewrite-expr (:value stmt) libraries imported-modules))
+    :return (cond-> stmt
+              (:expr stmt) (assoc :expr (rewrite-expr (:expr stmt) libraries imported-modules)))
+    :expression-statement (assoc stmt :expr (rewrite-expr (:expr stmt) libraries imported-modules))
     :while (assoc stmt
-                  :condition (expand-expr (:condition stmt) libraries imported-modules 0)
-                  :body (expand-block (:body stmt) libraries imported-modules))
+                  :condition (rewrite-expr (:condition stmt) libraries imported-modules)
+                  :body (rewrite-block (:body stmt) libraries imported-modules))
     :if (assoc stmt
-               :condition (expand-expr (:condition stmt) libraries imported-modules 0)
-               :then (expand-block (:then stmt) libraries imported-modules)
+               :condition (rewrite-expr (:condition stmt) libraries imported-modules)
+               :then (rewrite-block (:then stmt) libraries imported-modules)
                :else (when-let [else (:else stmt)]
                        (if (= :block (:node else))
-                         (expand-block else libraries imported-modules)
-                         (expand-statement else libraries imported-modules))))
-    :block (expand-block stmt libraries imported-modules)
+                         (rewrite-block else libraries imported-modules)
+                         (rewrite-statement else libraries imported-modules))))
+    :block (rewrite-block stmt libraries imported-modules)
     stmt))
 
+(defn- qualified-public-declarations [module library]
+  (mapv (fn [[name function]]
+          (-> function
+              (assoc :name (str module "." name)
+                     :linked-module module)
+              (update :body #(rewrite-block % {} #{}))))
+        (:functions library)))
+
 (defn link-root
-  "Resolve imports against supplied libraries and lower currently executable imported calls.
-   std.console remains a platform-provided standard-library import."
+  "Resolve root imports against supplied libraries and link exported dependency
+   functions into the root compilation unit. Calls remain real calls; they are no
+   longer expression-inlined by the bootstrap interpreter."
   [root-ast libraries]
-  (let [imports (set (mapcat :names (:imports root-ast)))
-        imported-modules (set (for [segments imports
+  (let [root-imports (:imports root-ast)
+        import-names (set (mapcat :names root-imports))
+        imported-modules (set (for [segments import-names
                                     :when (= 1 (count segments))]
                                 (first segments)))]
     (doseq [module imported-modules]
@@ -187,9 +164,14 @@
                         {:diagnostic (diagnostic :module/missing
                                                  (str "no library supplied for import " module)
                                                  (:span root-ast))}))))
-    (assoc root-ast :declarations
-           (mapv (fn [decl]
-                   (if (= :function-decl (:node decl))
-                     (assoc decl :body (expand-block (:body decl) libraries imported-modules))
-                     decl))
-                 (:declarations root-ast)))))
+    (let [linked-modules (filter #(contains? libraries %) imported-modules)
+          library-imports (mapcat #(get-in libraries [% :ast :imports]) linked-modules)
+          linked-decls (mapcat #(qualified-public-declarations % (get libraries %)) linked-modules)
+          rewritten-root (mapv (fn [decl]
+                                 (if (= :function-decl (:node decl))
+                                   (assoc decl :body (rewrite-block (:body decl) libraries imported-modules))
+                                   decl))
+                               (:declarations root-ast))]
+      (assoc root-ast
+             :imports (vec (concat root-imports library-imports))
+             :declarations (vec (concat rewritten-root linked-decls))))))
