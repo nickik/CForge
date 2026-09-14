@@ -86,21 +86,24 @@
 
 (defn publish! [handle-table object-table reservation object-id]
   (let [object-value (object object-table object-id)
-        state (:state handle-table)
+        handle-state (:state handle-table)
+        object-state (:state object-table)
         {:keys [slot generation]} reservation
-        current (get-in @state [:slots slot])]
+        current (get-in @handle-state [:slots slot])]
     (cond
-      (or (nil? object-value) (not= :constructing (:state object-value)))
-      {:error :invalid-object}
-
+      (nil? object-value) {:error :invalid-object}
+      (not= :constructing (:state object-value)) {:error :wrong-object-state}
       (not (and current
                 (= generation (:generation current))
                 (= :reserved (:state current))))
       {:error :invalid-reservation}
-
       :else
       (let [handle {:slot slot :generation generation}]
-        (swap! state assoc-in [:slots slot]
+        ;; Semantic commit point: object becomes Live and the Handle becomes
+        ;; visible as one publication operation. No caller may observe the
+        ;; intermediate state represented by these two host-model updates.
+        (swap! object-state assoc-in [:objects object-id :state] :live)
+        (swap! handle-state assoc-in [:slots slot]
                {:generation generation :state :published :object-id object-id})
         {:ok {:handle handle :object-id object-id}}))))
 
