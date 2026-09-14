@@ -1,5 +1,6 @@
 (ns cforge.cosmic-memory-object-model
   (:require [cforge.cosmic-memory-pool-model :as pool]
+            [cforge.cosmic-object-handle-model :as oh]
             [cforge.cosmic-physical-page-provider :as phys]))
 
 ;; Executable bootstrap oracle for the Forge MemoryObject creation transaction.
@@ -11,19 +12,26 @@
 
 (defn make-store
   ([] (make-store {}))
-  ([{:keys [metadata-charge fail-stage]
-     :or {metadata-charge 64 fail-stage nil}}]
-   {:state (atom {:next-object-id 1
-                  :objects {}
-                  :metadata-charge metadata-charge
-                  :fail-stage fail-stage})}))
+  ([{:keys [metadata-charge fail-stage handle-capacity]
+     :or {metadata-charge 64 fail-stage nil handle-capacity 64}}]
+   {:state (atom {:metadata-charge metadata-charge
+                  :fail-stage fail-stage
+                  :objects {}})
+    :object-table (oh/make-object-table)
+    :handle-table (oh/make-handle-table handle-capacity)}))
 
 (defn store-state [store] @(:state store))
 
 (defn- fail? [store stage]
   (= stage (:fail-stage (store-state store))))
 
-(defn- rollback! [memory-pool provider charge allocation]
+(defn- rollback! [store memory-pool provider charge allocation reservation object-id published-handle]
+  (when published-handle
+    (oh/unpublish! (:handle-table store) published-handle))
+  (when object-id
+    (oh/destroy-object! (:object-table store) object-id))
+  (when reservation
+    (oh/cancel-reservation! (:handle-table store) reservation))
   (when allocation
     (phys/free-pages! provider allocation))
   (when charge
@@ -43,39 +51,63 @@
             charge-result (pool/charge! memory-pool total-charge :memory-object)]
         (if-let [charge (:ok charge-result)]
           (if (fail? store :after-charge)
-            (do (rollback! memory-pool provider charge nil)
+            (do (rollback! store memory-pool provider charge nil nil nil nil)
                 {:error :injected-failure})
             (let [allocation-result (phys/alloc-pages! provider page-count (boolean physically-contiguous?))]
               (if-let [allocation (:ok allocation-result)]
-                (cond
-                  (fail? store :after-physical-allocation)
-                  (do (rollback! memory-pool provider charge allocation)
+                (if (fail? store :after-physical-allocation)
+                  (do (rollback! store memory-pool provider charge allocation nil nil nil)
                       {:error :injected-failure})
-
-                  :else
                   (let [zero-result (phys/zero-pages! provider allocation)]
                     (if (:error zero-result)
-                      (do (rollback! memory-pool provider charge allocation)
+                      (do (rollback! store memory-pool provider charge allocation nil nil nil)
                           {:error :provider-failure})
-                      (if (fail? store :before-publish)
-                        (do (rollback! memory-pool provider charge allocation)
-                            {:error :injected-failure})
-                        (let [state (:state store)
-                              object-id (:next-object-id @state)
-                              object {:id object-id
-                                      :requested-size size
-                                      :backing-size backing-size
-                                      :page-count page-count
-                                      :metadata-charge metadata-charge
-                                      :total-charge total-charge
-                                      :charge charge
-                                      :allocation allocation
-                                      :attributes (dissoc request :size)}]
-                          (swap! state (fn [s]
-                                         (-> s
-                                             (update :next-object-id inc)
-                                             (assoc-in [:objects object-id] object))))
-                          {:ok object})))))
+                      (let [object-result
+                            (oh/create-object! (:object-table store)
+                                               :memory-object
+                                               {:requested-size size
+                                                :backing-size backing-size
+                                                :page-count page-count})
+                            object (:ok object-result)
+                            object-id (:id object)]
+                        (if (fail? store :after-object-construction)
+                          (do (rollback! store memory-pool provider charge allocation nil object-id nil)
+                              {:error :injected-failure})
+                          (let [reservation-result (oh/reserve-slot! (:handle-table store))]
+                            (if-let [reservation (:ok reservation-result)]
+                              (if (fail? store :before-publish)
+                                (do (rollback! store memory-pool provider charge allocation reservation object-id nil)
+                                    {:error :injected-failure})
+                                (let [publish-result (oh/publish! (:handle-table store) reservation object-id)]
+                                  (if-let [published (:ok publish-result)]
+                                    (if (fail? store :after-publish)
+                                      (do (rollback! store memory-pool provider charge allocation nil object-id (:handle published))
+                                          {:error :injected-failure})
+                                      (let [live-result (oh/mark-live! (:object-table store) object-id)]
+                                        (if-let [live-object (:ok live-result)]
+                                          (let [object-record
+                                                {:id object-id
+                                                 :header live-object
+                                                 :handle (:handle published)
+                                                 :requested-size size
+                                                 :backing-size backing-size
+                                                 :page-count page-count
+                                                 :metadata-charge metadata-charge
+                                                 :total-charge total-charge
+                                                 :charge charge
+                                                 :allocation allocation
+                                                 :attributes (dissoc request :size)}]
+                                            (swap! (:state store) assoc-in [:objects object-id] object-record)
+                                            {:ok object-record})
+                                          (do
+                                            (rollback! store memory-pool provider charge allocation nil object-id (:handle published))
+                                            {:error :publish-failure}))))
+                                    (do
+                                      (rollback! store memory-pool provider charge allocation reservation object-id nil)
+                                      {:error :publish-failure}))))
+                              (do
+                                (rollback! store memory-pool provider charge allocation nil object-id nil)
+                                {:error :publish-failure})))))))
                 (do
                   (pool/release! memory-pool charge)
                   {:error (:error allocation-result)}))))
@@ -86,15 +118,33 @@
         recorded (get-in @state [:objects (:id object)])]
     (if (not= recorded object)
       {:error :invalid-object}
-      (let [free-result (phys/free-pages! provider (:allocation object))]
-        (if (:error free-result)
-          {:error :provider-failure}
-          (let [release-result (pool/release! memory-pool (:charge object))]
-            (if (:error release-result)
-              {:error :accounting-failure}
-              (do
-                (swap! state update :objects dissoc (:id object))
-                {:ok nil}))))))))
+      (let [unpublish-result (oh/unpublish! (:handle-table store) (:handle object))]
+        (if (:error unpublish-result)
+          {:error :publish-failure}
+          (let [destroy-object-result (oh/destroy-object! (:object-table store) (:id object))]
+            (if (:error destroy-object-result)
+              {:error :invalid-object}
+              (let [free-result (phys/free-pages! provider (:allocation object))]
+                (if (:error free-result)
+                  {:error :provider-failure}
+                  (let [release-result (pool/release! memory-pool (:charge object))]
+                    (if (:error release-result)
+                      {:error :accounting-failure}
+                      (do
+                        (swap! state update :objects dissoc (:id object))
+                        {:ok nil}))))))))))))
 
 (defn object-count [store]
   (count (:objects (store-state store))))
+
+(defn live-handle-count [store]
+  (oh/live-handle-count (:handle-table store)))
+
+(defn reserved-handle-count [store]
+  (oh/reserved-handle-count (:handle-table store)))
+
+(defn kernel-object-count [store]
+  (oh/object-count (:object-table store)))
+
+(defn lookup-handle [store handle]
+  (oh/lookup (:handle-table store) handle))
