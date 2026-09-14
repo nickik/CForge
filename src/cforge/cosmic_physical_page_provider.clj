@@ -1,4 +1,5 @@
-(ns cforge.cosmic-physical-page-provider)
+(ns cforge.cosmic-physical-page-provider
+  (:require [clojure.set :as set]))
 
 ;; Bootstrap implementation of Cosmic's PhysicalMemoryProvider contract.
 ;; This is intentionally the replaceable machine-facing layer. Cosmic policy
@@ -57,24 +58,27 @@
         (swap! state update :reserved into (range first-page (+ first-page count)))
         {:ok nil}))))
 
-(defn reserve-range! [provider base size]
-  (let [{:keys [page-size base provider-base] :as _g}
-        (assoc (geometry provider) :provider-base (:base (provider-state provider)))
-        provider-base (:base (provider-state provider))]
+(defn reserve-range! [provider address size]
+  (let [s (provider-state provider)
+        page-size (:page-size s)
+        provider-base (:base s)
+        offset (- address provider-base)]
     (cond
       (not (valid-positive-int? size)) {:error :invalid-size}
-      (or (not (zero? (mod (- base provider-base) page-size)))
+      (neg? offset) {:error :invalid-size}
+      (or (not (zero? (mod offset page-size)))
           (not (zero? (mod size page-size)))) {:error :invalid-alignment}
       :else (reserve-pages! provider
-                            (quot (- base provider-base) page-size)
+                            (quot offset page-size)
                             (quot size page-size)))))
 
 (defn- contiguous-run [s count]
-  (first
-   (for [start (range 0 (inc (- (:total-pages s) count)))
-         :let [pages (vec (range start (+ start count)))]
-         :when (every? #(free-page? s %) pages)]
-     pages)))
+  (when (<= count (:total-pages s))
+    (first
+     (for [start (range 0 (inc (- (:total-pages s) count)))
+           :let [pages (vec (range start (+ start count)))]
+           :when (every? #(free-page? s %) pages)]
+       pages))))
 
 (defn alloc-pages! [provider count contiguous?]
   (let [state (:state provider)
@@ -143,7 +147,7 @@
         allocated-pages (mapcat :pages allocations)
         allocated-set (set allocated-pages)]
     (and (= (count allocated-pages) (count allocated-set))
-         (empty? (clojure.set/intersection (:reserved s) allocated-set))
+         (empty? (set/intersection (:reserved s) allocated-set))
          (= (:total-pages s)
             (+ (count (:reserved s))
                (count allocated-set)
