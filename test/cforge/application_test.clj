@@ -1,7 +1,8 @@
 (ns cforge.application-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [cforge.core :as core]))
+            [cforge.core :as core]
+            [cforge.host :as host]))
 
 (def game-source
   (slurp "examples/game_of_life.fg"))
@@ -34,6 +35,16 @@
     (is (empty? (:diagnostics @result)))
     (is (= 0 (:exit @result)))
     (is (= "hello\n" output))))
+
+(deftest console-provider-is-replaceable
+  (let [source "module test.console_provider;\nimport std.console;\nfn main() -> i32 {\n  console.write(\"alpha\");\n  console.write(\"beta\");\n  return 0;\n}\n"
+        captured (atom "")
+        provider {:write (fn [text] (swap! captured str text) nil)}
+        result (binding [host/*console-provider* provider]
+                 (core/run-source source))]
+    (is (empty? (:diagnostics result)))
+    (is (= 0 (:exit result)))
+    (is (= "alphabeta" @captured))))
 
 (deftest game-of-life-is-a-real-runnable-forge-program
   (testing "parser/checker/interpreter execute four generations"
