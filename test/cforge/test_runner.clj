@@ -12,6 +12,7 @@
             [cforge.host-services-test]
             [cforge.hosted-std-forge-test]
             [cforge.library-contract-test]
+            [cforge.list-u64-allocator-contract-test]
             [cforge.module-link-test]
             [cforge.spec-coverage-test]
             [cforge.transducer-contract-test]))
@@ -29,6 +30,7 @@
                                           'cforge.host-services-test
                                           'cforge.hosted-std-forge-test
                                           'cforge.library-contract-test
+                                          'cforge.list-u64-allocator-contract-test
                                           'cforge.module-link-test
                                           'cforge.spec-coverage-test
                                           'cforge.transducer-contract-test)]
