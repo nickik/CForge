@@ -84,18 +84,25 @@
         {:ok nil})
       {:error :invalid-reservation})))
 
-(defn publish! [table reservation object-id]
-  (let [state (:state table)
+(defn publish! [handle-table object-table reservation object-id]
+  (let [object-value (object object-table object-id)
+        state (:state handle-table)
         {:keys [slot generation]} reservation
         current (get-in @state [:slots slot])]
-    (if (and current
-             (= generation (:generation current))
-             (= :reserved (:state current)))
+    (cond
+      (or (nil? object-value) (not= :constructing (:state object-value)))
+      {:error :invalid-object}
+
+      (not (and current
+                (= generation (:generation current))
+                (= :reserved (:state current))))
+      {:error :invalid-reservation}
+
+      :else
       (let [handle {:slot slot :generation generation}]
         (swap! state assoc-in [:slots slot]
                {:generation generation :state :published :object-id object-id})
-        {:ok {:handle handle :object-id object-id}})
-      {:error :invalid-reservation})))
+        {:ok {:handle handle :object-id object-id}}))))
 
 (defn lookup [table handle]
   (let [{:keys [slot generation]} handle
