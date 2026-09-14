@@ -24,6 +24,9 @@
 (defn- import-name [segments]
   (str/join "." segments))
 
+(defn- module-short-name [module]
+  (last (str/split module #"\.")))
+
 (defn- builtin-module? [module]
   (or (= module "core")
       (= module "std")
@@ -80,13 +83,31 @@
               (conj (vec target-path) (:member expr)))
     nil))
 
+(defn- resolve-imported-module [reference imported-modules span]
+  (cond
+    (contains? imported-modules reference)
+    reference
+
+    :else
+    (let [matches (vec (filter #(= reference (module-short-name %)) imported-modules))]
+      (cond
+        (= 1 (count matches)) (first matches)
+        (> (count matches) 1)
+        (throw (ex-info "ambiguous imported module alias"
+                        {:diagnostic (diagnostic :module/ambiguous
+                                                 (str "module alias " reference
+                                                      " matches " (str/join ", " matches))
+                                                 span)}))
+        :else nil))))
+
 (defn- imported-call [expr imported-modules]
   (let [callee (:callee expr)
         path (member-path callee)]
     (when (and path (>= (count path) 2))
       (let [function-name (last path)
-            module (str/join "." (butlast path))]
-        (when (contains? imported-modules module)
+            reference (str/join "." (butlast path))
+            module (resolve-imported-module reference imported-modules (:span expr))]
+        (when module
           [module function-name])))))
 
 (defn- rewrite-imported-call [expr libraries imported-modules]
@@ -252,8 +273,10 @@
   "Resolve root imports against supplied libraries and link the full transitive
    local-library closure into the root compilation unit. Only public functions
    may be referenced across module boundaries; private helpers are retained
-   under qualified internal names for same-library calls. Builtin core.* and
-   std.* imports stay on the interpreter's existing builtin path."
+   under qualified internal names for same-library calls. Forge imports expose
+   both their full path and, when unambiguous, the final module component as the
+   source-level namespace. Builtin core.* and std.* imports stay on the
+   interpreter's existing builtin path."
   [root-ast libraries]
   (let [root-imports (:imports root-ast)
         all-imported-modules (set (map import-name (mapcat :names root-imports)))
