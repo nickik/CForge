@@ -144,13 +144,11 @@
   [pool]
   (let [{:keys [limit charged reserved charges children]} (pool-state pool)
         charge-sum (reduce + 0 (map :bytes (vals charges)))
-        child-reservation-sum (reduce + 0 (map #(get-in % [:state deref :reservation]) []))]
-    ;; child-reservation-sum is calculated explicitly below because deref is not
-    ;; composable through get-in.
-    (let [child-reservation-sum (reduce + 0 (map #(-> % pool-state :reservation) (vals children)))]
-      (and (>= limit 0)
-           (>= charged 0)
-           (>= reserved 0)
-           (= charged charge-sum)
-           (= reserved child-reservation-sum)
-           (<= (+ charged reserved) limit)))))
+        child-reservation-sum
+        (reduce + 0 (map #(-> % pool-state :reservation) (vals children)))]
+    (and (>= limit 0)
+         (>= charged 0)
+         (>= reserved 0)
+         (= charged charge-sum)
+         (= reserved child-reservation-sum)
+         (<= (+ charged reserved) limit))))
