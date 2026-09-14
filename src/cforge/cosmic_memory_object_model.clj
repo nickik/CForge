@@ -110,7 +110,7 @@
                 (do
                   (pool/release! memory-pool charge)
                   {:error (:error allocation-result)}))))
-          {:error (:error charge-result)})))))
+          {:error (:error charge-result)}))))))
 
 (defn destroy! [store memory-pool provider object]
   (let [state (:state store)
