@@ -4,12 +4,11 @@ module core;
 // CForge uses this file to develop multi-unit/module resolution and library
 // contract testing.
 //
-// Allocation discipline: ordinary values and collections never retain an
-// Allocator capability merely so they can allocate later. Every durable
-// allocate/reallocate/grow/clone/free operation receives the allocator
-// explicitly at that call site. Allocator/Arena/ObjectCache and explicitly
-// named pool/memory-domain managers are the exception because implementing a
-// memory domain is their purpose.
+// Explicit durable-allocation rule: ordinary values and collections do not
+// retain Allocator capabilities. Any operation that allocates, resizes, clones
+// owning storage, or frees durable storage receives the allocator explicitly at
+// the call site. Memory-domain managers such as Arena/ObjectCache may retain
+// lower-level provider capabilities because managing memory is their purpose.
 
 pub enum PanicKind {
     Explicit,
@@ -42,6 +41,7 @@ pub enum AllocError {
     InvalidSize,
     InvalidAlignment,
     ResourceLimit,
+    ForeignAllocation,
     CorruptState,
 }
 
@@ -136,9 +136,6 @@ pub struct ObjectCacheStats {
     reclaims: u64;
 }
 
-// ObjectCache is itself an explicit memory-domain manager, so retaining its
-// backing Arena capability is intentional and does not apply to ordinary data
-// structures such as List/String/HashMap.
 pub struct ObjectCache {
     arena: &mut Arena;
     spec: ObjectCacheSpec;
