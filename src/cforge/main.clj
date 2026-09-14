@@ -30,6 +30,9 @@
          positional []]
     (if-let [arg (first args)]
       (cond
+        (= arg "--")
+        (recur (next args) mode pretty? trace? libraries positional)
+
         (contains? #{"--tokens" "--ast" "--check" "--run" "--conformance"} arg)
         (if mode
           (throw (ex-info "exactly one mode is required" {:usage true}))
