@@ -13,10 +13,18 @@
     :u64 [0N 18446744073709551615N]
     nil))
 
+(defn- width-for [t]
+  (case t
+    (:i8 :u8) 8
+    (:i16 :u16) 16
+    (:i32 :u32) 32
+    (:i64 :u64) 64
+    nil))
+
 (defn- checked-int [t n span]
   (if-let [[lo hi] (range-for t)]
     (if (<= lo n hi)
-      (forge-value t n)
+      (forge-value t (bigint n))
       (throw (ex-info "integer overflow"
                       {:diagnostic {:category :runtime/overflow :severity :error
                                     :message (str "integer overflow for " t)
@@ -25,6 +33,21 @@
                     {:diagnostic {:category :runtime/type :severity :error
                                   :message (str "not an integer type: " t)
                                   :span span}}))))
+
+(defn- big-and [a b] (bigint (.and (biginteger a) (biginteger b))))
+(defn- big-or [a b] (bigint (.or (biginteger a) (biginteger b))))
+(defn- big-xor [a b] (bigint (.xor (biginteger a) (biginteger b))))
+(defn- big-not [a] (bigint (.not (biginteger a))))
+(defn- big-shift-left [a n] (bigint (.shiftLeft (biginteger a) n)))
+(defn- big-shift-right [a n] (bigint (.shiftRight (biginteger a) n)))
+
+(defn- checked-shift-count! [t n span]
+  (let [width (width-for t)]
+    (when (or (nil? width) (neg? n) (>= n width))
+      (throw (ex-info "shift count out of range"
+                      {:diagnostic {:category :runtime/shift-out-of-range :severity :error
+                                    :message (str "shift count " n " is invalid for " t)
+                                    :span span}})))))
 
 (declare eval-expr eval-block)
 
@@ -71,11 +94,13 @@
           :lte (forge-value :bool (<= a b))
           :gt (forge-value :bool (> a b))
           :gte (forge-value :bool (>= a b))
-          :bit-and (checked-int t (bit-and a b) (:span expr))
-          :bit-or (checked-int t (bit-or a b) (:span expr))
-          :bit-xor (checked-int t (bit-xor a b) (:span expr))
-          :shl (checked-int t (bit-shift-left a (int b)) (:span expr))
-          :shr (checked-int t (bit-shift-right a (int b)) (:span expr))
+          :bit-and (checked-int t (big-and a b) (:span expr))
+          :bit-or (checked-int t (big-or a b) (:span expr))
+          :bit-xor (checked-int t (big-xor a b) (:span expr))
+          :shl (do (checked-shift-count! t b (:span expr))
+                   (checked-int t (big-shift-left a (int b)) (:span expr)))
+          :shr (do (checked-shift-count! t b (:span expr))
+                   (checked-int t (big-shift-right a (int b)) (:span expr)))
           (throw (ex-info "operator not implemented"
                           {:diagnostic {:category :runtime/unsupported
                                         :severity :error
@@ -99,7 +124,7 @@
                :not (forge-value :bool (not (truth v)))
                :neg (checked-int (:forge-type expr) (- (:value v)) (:span expr))
                :pos v
-               :bit-not (checked-int (:forge-type expr) (bit-not (:value v)) (:span expr))
+               :bit-not (checked-int (:forge-type expr) (big-not (:value v)) (:span expr))
                (throw (ex-info "unary operator not executable yet"
                                {:diagnostic {:category :runtime/unsupported
                                              :severity :error
@@ -160,17 +185,15 @@
                           {:diagnostic {:category :name/main-missing :severity :error
                                         :message "main function not found"
                                         :span (:span typed-ast)}})))
-        (when (seq (:params main))
-          (throw (ex-info "bootstrap main arguments unsupported"
-                          {:diagnostic {:category :runtime/unsupported :severity :error
-                                        :message "bootstrap evaluator supports only main()"
-                                        :span (:span main)}})))
         (let [[flow _] (eval-block (:body main) {})]
           (if (= :return (:flow flow))
             (let [value (:value flow)]
               (trace/emit! {:event :eval/return :value value})
               {:value value :exit (int (:value value)) :diagnostics []})
-            {:value nil :exit 0 :diagnostics []})))
+            (throw (ex-info "main completed without return"
+                            {:diagnostic {:category :runtime/missing-return :severity :error
+                                          :message "main completed without returning i32"
+                                          :span (:span main)}})))))
       (catch clojure.lang.ExceptionInfo e
         {:value nil :exit nil
          :diagnostics [(or (:diagnostic (ex-data e))
