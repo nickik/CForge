@@ -1,0 +1,21 @@
+#forge/package {
+  :name "cforge-bootstrap"
+  :version "0.1.0"
+
+  :targets {
+    :arithmetic {
+      :kind :test
+      :root "harness/fixtures/smoke/arithmetic.fg"
+    }
+
+    :game-of-life {
+      :kind :test
+      :root "examples/game_of_life.fg"
+      :test {
+        :expected "examples/game_of_life.expected.txt"
+      }
+    }
+  }
+
+  :dependencies {}
+}
