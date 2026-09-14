@@ -24,6 +24,12 @@
 (defn- import-name [segments]
   (str/join "." segments))
 
+(defn- builtin-module? [module]
+  (or (= module "core")
+      (= module "std")
+      (str/starts-with? module "core.")
+      (str/starts-with? module "std.")))
+
 (defn- all-functions [ast]
   (into {}
         (for [decl (:declarations ast)
@@ -246,25 +252,26 @@
   "Resolve root imports against supplied libraries and link the full transitive
    local-library closure into the root compilation unit. Only public functions
    may be referenced across module boundaries; private helpers are retained
-   under qualified internal names for same-library calls."
+   under qualified internal names for same-library calls. Builtin core.* and
+   std.* imports stay on the interpreter's existing builtin path."
   [root-ast libraries]
   (let [root-imports (:imports root-ast)
-        imported-modules (set (map import-name (mapcat :names root-imports)))]
-    (doseq [module imported-modules]
+        all-imported-modules (set (map import-name (mapcat :names root-imports)))
+        linked-root-modules (set (filter #(contains? libraries %) all-imported-modules))]
+    (doseq [module all-imported-modules]
       (when-not (or (contains? libraries module)
-                    (= module "core")
-                    (= module "std"))
+                    (builtin-module? module))
         (throw (ex-info "unresolved imported module"
                         {:diagnostic (diagnostic :module/missing
                                                  (str "no library supplied for import " module)
                                                  (:span root-ast))}))))
-    (let [linked-modules (sort (linked-module-closure imported-modules libraries))
+    (let [linked-modules (sort (linked-module-closure linked-root-modules libraries))
           library-imports (mapcat #(get-in libraries [% :ast :imports]) linked-modules)
           linked-decls (mapcat #(qualified-library-declarations % (get libraries %) libraries)
                                linked-modules)
           rewritten-root (mapv (fn [decl]
                                  (if (= :function-decl (:node decl))
-                                   (assoc decl :body (rewrite-block (:body decl) libraries imported-modules))
+                                   (assoc decl :body (rewrite-block (:body decl) libraries linked-root-modules))
                                    decl))
                                (:declarations root-ast))]
       (assoc root-ast
