@@ -1,6 +1,6 @@
 (ns cforge.host-services
   (:require [clojure.java.io :as io])
-  (:import [java.nio.channels FileChannel]
+  (:import [java.nio.channels FileChannel FileLock]
            [java.nio.charset StandardCharsets]
            [java.nio.file Files Path StandardOpenOption]))
 
@@ -59,16 +59,18 @@
   {:acquire-exclusive
    (fn [path]
      (let [lock-path (str path ".lock")
-           channel (FileChannel/open (path-of lock-path)
-                                     (into-array StandardOpenOption
-                                                 [StandardOpenOption/CREATE
-                                                  StandardOpenOption/WRITE]))
-           lock (.lock channel)]
+           ^FileChannel channel (FileChannel/open (path-of lock-path)
+                                                  (into-array StandardOpenOption
+                                                              [StandardOpenOption/CREATE
+                                                               StandardOpenOption/WRITE]))
+           ^FileLock lock (.lock channel)]
        {:channel channel :lock lock}))
    :release
    (fn [{:keys [lock channel]}]
-     (when lock (.release lock))
-     (when channel (.close channel))
+     (when lock
+       (.release ^FileLock lock))
+     (when channel
+       (.close ^FileChannel channel))
      nil)})
 
 (def ^:dynamic *lock-provider* default-lock-provider)
