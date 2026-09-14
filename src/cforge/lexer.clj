@@ -13,8 +13,7 @@
 (def multi-tokens
   {"->" :arrow "=>" :fat-arrow "==" :eq-eq "!=" :not-eq
    "<=" :lte ">=" :gte "&&" :and-and "||" :or-or
-   "<<" :shl ">>" :shr "+=" :plus-eq "-=" :minus-eq
-   "*=" :star-eq "/=" :slash-eq "%=" :percent-eq})
+   "<<" :shl ">>" :shr})
 
 (def single-tokens
   {\( :lparen \) :rparen \{ :lbrace \} :rbrace \[ :lbracket \] :rbracket
