@@ -1,0 +1,16 @@
+module std.console;
+
+import core;
+
+// Hosted console convenience API.
+//
+// The source API is stable while the provider is target-specific. A Unix hosted
+// runtime, CForge, or a future Cosmic user runtime may each provide the backing
+// write operation. Freestanding kernels should normally use core.io.Writer.
+
+nfn __forge_console_write(text: str) -> void {
+}
+
+pub fn write(text: str) -> void {
+    __forge_console_write(text);
+}

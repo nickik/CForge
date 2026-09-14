@@ -52,6 +52,14 @@
    :slash [100 101 :div]
    :percent [100 101 :rem]})
 
+(def assignment-kinds
+  {:eq :assign
+   :plus-eq :add-assign
+   :minus-eq :sub-assign
+   :star-eq :mul-assign
+   :slash-eq :div-assign
+   :percent-eq :rem-assign})
+
 (def prefix-ops
   {:bang :not :minus :neg :plus :pos :tilde :bit-not
    :star :deref :amp :address-of})
@@ -201,8 +209,6 @@
         [semi p] (expect p :semicolon)
         node {:node :value-decl :storage storage :name (:text name-t)
               :type type :init init :span (span-between start semi)}]
-    (trace/emit! {:event :parse/node :kind :value-decl
-                  :name (:name node) :span (:span node)})
     [node p]))
 
 (defn- parse-return [p]
@@ -232,20 +238,45 @@
              :line (get-in start [:span :line])
              :column (get-in start [:span :column])}} p]))
 
+(defn- parse-while [p]
+  (let [start (current p)
+        [_ p] (expect p :while)
+        [_ p] (expect p :lparen)
+        [condition p] (parse-expression p 0)
+        [_ p] (expect p :rparen)
+        [body p] (parse-block p)]
+    [{:node :while :condition condition :body body
+      :span {:start (get-in start [:span :start])
+             :end (get-in body [:span :end])
+             :line (get-in start [:span :line])
+             :column (get-in start [:span :column])}} p]))
+
+(defn- parse-expression-or-assignment [p]
+  (let [[target p] (parse-expression p 0)]
+    (if-let [op (get assignment-kinds (kind p))]
+      (let [p (advance p)
+            [value p] (parse-expression p 0)
+            [semi p] (expect p :semicolon)]
+        [{:node :assignment :op op :target target :value value
+          :span {:start (get-in target [:span :start])
+                 :end (get-in semi [:span :end])
+                 :line (get-in target [:span :line])
+                 :column (get-in target [:span :column])}} p])
+      (let [[semi p] (expect p :semicolon)]
+        [{:node :expression-statement :expr target
+          :span {:start (get-in target [:span :start])
+                 :end (get-in semi [:span :end])
+                 :line (get-in target [:span :line])
+                 :column (get-in target [:span :column])}} p]))))
+
 (defn parse-statement [p]
   (cond
     (contains? #{:val :var :const} (kind p)) (parse-value-decl p)
     (at? p :return) (parse-return p)
     (at? p :if) (parse-if p)
+    (at? p :while) (parse-while p)
     (at? p :lbrace) (parse-block p)
-    :else
-    (let [[expr p] (parse-expression p 0)
-          [semi p] (expect p :semicolon)]
-      [{:node :expression-statement :expr expr
-        :span {:start (get-in expr [:span :start])
-               :end (get-in semi [:span :end])
-               :line (get-in expr [:span :line])
-               :column (get-in expr [:span :column])}} p])))
+    :else (parse-expression-or-assignment p)))
 
 (defn parse-block [p]
   (let [[open p] (expect p :lbrace)]
@@ -284,16 +315,13 @@
         [params p] (parse-parameters p)
         [_ p] (expect p :rparen)
         [ret p] (if (at? p :arrow) (parse-type (advance p)) [nil p])
-        [body p] (parse-block p)
-        node {:node :function-decl :native? native? :name (:text name-t)
-              :params params :return-type ret :body body
-              :span {:start (get-in start [:span :start])
-                     :end (get-in body [:span :end])
-                     :line (get-in start [:span :line])
-                     :column (get-in start [:span :column])}}]
-    (trace/emit! {:event :parse/node :kind :function-decl
-                  :name (:name node) :span (:span node)})
-    [node p]))
+        [body p] (parse-block p)]
+    [{:node :function-decl :native? native? :name (:text name-t)
+      :params params :return-type ret :body body
+      :span {:start (get-in start [:span :start])
+             :end (get-in body [:span :end])
+             :line (get-in start [:span :line])
+             :column (get-in start [:span :column])}} p]))
 
 (defn- parse-module [p]
   (let [[start p] (expect p :module)
@@ -333,12 +361,9 @@
                           [xs p]
                           (let [[x p] (parse-declaration p)]
                             (recur (conj xs x) p))))
-            [_ _] (expect p :eof)
+            eof (current p)
             ast {:node :file :module module :imports imports :declarations decls
-                 :span {:start (get-in module [:span :start])
-                        :end (get-in (last tokens) [:span :end])
-                        :line (get-in module [:span :line])
-                        :column (get-in module [:span :column])}}]
+                 :span {:start 0 :end (get-in eof [:span :end]) :line 1 :column 1}}]
         (trace/emit! {:event :parse/summary :declarations (count decls)})
         {:ast ast :diagnostics []})
       (catch clojure.lang.ExceptionInfo e

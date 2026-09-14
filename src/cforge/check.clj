@@ -3,14 +3,15 @@
             [cforge.trace :as trace]))
 
 (def integer-ranges
-  {:i8  [(- 128N) 127N]
-   :u8  [0N 255N]
-   :i16 [(- 32768N) 32767N]
-   :u16 [0N 65535N]
-   :i32 [(- 2147483648N) 2147483647N]
-   :u32 [0N 4294967295N]
+  {:i8  [(- 128N) 127N] :u8  [0N 255N]
+   :i16 [(- 32768N) 32767N] :u16 [0N 65535N]
+   :i32 [(- 2147483648N) 2147483647N] :u32 [0N 4294967295N]
    :i64 [(- 9223372036854775808N) 9223372036854775807N]
-   :u64 [0N 18446744073709551615N]})
+   :u64 [0N 18446744073709551615N]
+   :isize [(- 9223372036854775808N) 9223372036854775807N]
+   :usize [0N 18446744073709551615N]})
+
+(def ^:dynamic *imports* #{})
 
 (defn- diagnostic [category message span]
   {:category category :severity :error :message message :span span})
@@ -26,6 +27,12 @@
       :pointer-type [:pointer (type-key (:to type-node))]
       :reference-type [:reference (:mutable? type-node) (type-key (:to type-node))]
       nil)))
+
+(defn- binding-type [binding]
+  (if (map? binding) (:type binding) binding))
+
+(defn- mutable-binding? [binding]
+  (and (map? binding) (:mutable? binding)))
 
 (defn- ensure-int-fits! [value t span]
   (if-let [[lo hi] (get integer-ranges t)]
@@ -53,14 +60,22 @@
                                              (str "integer type required, found " t)
                                              span)}))))
 
+(defn- console-write-call? [expr]
+  (let [callee (:callee expr)]
+    (and (= :member (:node callee))
+         (= "write" (:member callee))
+         (= :name (get-in callee [:target :node]))
+         (= "console" (get-in callee [:target :name])))))
+
+(defn- console-imported? []
+  (contains? *imports* ["std" "console"]))
+
 (declare check-expr check-block check-statement)
 
 (defn- check-negation [expr env expected]
   (let [t (or expected :i32)
         inner-expr (:expr expr)]
     (require-integer-type! t (:span expr))
-    ;; Untyped numeric literals are mathematical values. The signed minimum value,
-    ;; e.g. -128:i8, is valid even though the positive magnitude 128 is not i8.
     (if (= :integer-literal (:node inner-expr))
       (let [value (- (:value inner-expr))]
         (ensure-int-fits! value t (:span expr))
@@ -70,7 +85,32 @@
       (let [inner (check-expr inner-expr env t)]
         (assoc expr :expr inner :forge-type t)))))
 
-(defn- check-expr [expr env expected]
+(defn- check-call [expr env expected]
+  (cond
+    (console-write-call? expr)
+    (do
+      (when-not (console-imported?)
+        (throw (ex-info "std.console is not imported"
+                        {:diagnostic (diagnostic :name/unresolved
+                                                 "console.write requires import std.console"
+                                                 (:span expr))})))
+      (when (not= 1 (count (:args expr)))
+        (throw (ex-info "console.write takes one argument"
+                        {:diagnostic (diagnostic :type/call
+                                                 "console.write expects exactly one str argument"
+                                                 (:span expr))})))
+      (let [arg (check-expr (first (:args expr)) env :str)]
+        (when (and expected (not= expected :void))
+          (require-type! :void expected (:span expr)))
+        (assoc expr :args [arg] :forge-type :void :builtin :std.console/write)))
+
+    :else
+    (throw (ex-info "call target unsupported"
+                    {:diagnostic (diagnostic :type/unsupported
+                                             "only std.console.write calls are executable in this bootstrap slice"
+                                             (:span expr))}))))
+
+(defn check-expr [expr env expected]
   (case (:node expr)
     :integer-literal
     (let [t (or expected :i32)]
@@ -82,15 +122,22 @@
       (when expected (require-type! :bool expected (:span expr)))
       (assoc expr :forge-type :bool))
 
+    :string-literal
+    (do
+      (when expected (require-type! :str expected (:span expr)))
+      (assoc expr :forge-type :str))
+
     :name
-    (if-let [t (get env (:name expr))]
-      (do
+    (if-let [binding (get env (:name expr))]
+      (let [t (binding-type binding)]
         (when expected (require-type! t expected (:span expr)))
         (assoc expr :forge-type t))
       (throw (ex-info "unresolved name"
                       {:diagnostic (diagnostic :name/unresolved
                                                (str "unresolved name " (:name expr))
                                                (:span expr))})))
+
+    :call (check-call expr env expected)
 
     :unary
     (let [op (:op expr)]
@@ -118,7 +165,10 @@
     (let [op (:op expr)]
       (cond
         (contains? #{:add :sub :mul :div :rem :bit-and :bit-or :bit-xor :shl :shr} op)
-        (let [t (or expected :i32)]
+        (let [t (or expected
+                    (when (= :name (get-in expr [:left :node]))
+                      (some-> (get env (get-in expr [:left :name])) binding-type))
+                    :i32)]
           (require-integer-type! t (:span expr))
           (let [left (check-expr (:left expr) env t)
                 right (check-expr (:right expr) env t)]
@@ -156,7 +206,35 @@
                                              (str "checker does not yet support " (:node expr))
                                              (:span expr))}))))
 
-(defn- check-statement [stmt env return-type]
+(defn- check-assignment [stmt env]
+  (let [target (:target stmt)]
+    (when-not (= :name (:node target))
+      (throw (ex-info "assignment target unsupported"
+                      {:diagnostic (diagnostic :type/unsupported
+                                               "bootstrap assignments require a local variable name"
+                                               (:span target))})))
+    (let [name (:name target)
+          binding (get env name)]
+      (when-not binding
+        (throw (ex-info "unresolved assignment target"
+                        {:diagnostic (diagnostic :name/unresolved
+                                                 (str "unresolved name " name)
+                                                 (:span target))})))
+      (when-not (mutable-binding? binding)
+        (throw (ex-info "assignment to immutable binding"
+                        {:diagnostic (diagnostic :type/immutable
+                                                 (str name " is not mutable")
+                                                 (:span target))})))
+      (let [t (binding-type binding)
+            _ (when (not= :assign (:op stmt)) (require-integer-type! t (:span stmt)))
+            value (check-expr (:value stmt) env t)]
+        [(assoc stmt
+                :target (assoc target :forge-type t)
+                :value value
+                :forge-type t)
+         env]))))
+
+(defn check-statement [stmt env return-type]
   (case (:node stmt)
     :value-decl
     (let [decl-type (type-key (:type stmt))]
@@ -165,13 +243,24 @@
                         {:diagnostic (diagnostic :type/unsupported
                                                  "bootstrap checker requires an explicit value type"
                                                  (:span stmt))})))
-      (let [init (check-expr (:init stmt) env decl-type)]
+      (let [init (check-expr (:init stmt) env decl-type)
+            binding {:type decl-type :mutable? (= :var (:storage stmt))}]
         [(assoc stmt :declared-type decl-type :init init)
-         (assoc env (:name stmt) decl-type)]))
+         (assoc env (:name stmt) binding)]))
+
+    :assignment (check-assignment stmt env)
 
     :return
     (if-let [expr (:expr stmt)]
-      [(assoc stmt :expr (check-expr expr env return-type)) env]
+      (try
+        [(assoc stmt :expr (check-expr expr env return-type)) env]
+        (catch clojure.lang.ExceptionInfo e
+          (if (= :type/mismatch (get-in (ex-data e) [:diagnostic :category]))
+            (throw (ex-info "wrong return type"
+                            {:diagnostic (diagnostic :type/return
+                                                     "returned value does not match function return type"
+                                                     (:span stmt))}))
+            (throw e))))
       (do
         (when (and return-type (not= :void return-type))
           (throw (ex-info "missing return value"
@@ -190,6 +279,11 @@
                             [nil env])]
       [(assoc stmt :condition condition :then then :else else-branch) env])
 
+    :while
+    (let [condition (check-expr (:condition stmt) env :bool)
+          [body _] (check-block (:body stmt) env return-type)]
+      [(assoc stmt :condition condition :body body) env])
+
     :block
     (let [[block _] (check-block stmt env return-type)] [block env])
 
@@ -201,7 +295,7 @@
                                              (str "checker does not yet support " (:node stmt))
                                              (:span stmt))}))))
 
-(defn- check-block [block env return-type]
+(defn check-block [block env return-type]
   (loop [remaining (:statements block) env env checked []]
     (if-let [stmt (first remaining)]
       (let [[checked-stmt env'] (check-statement stmt env return-type)]
@@ -223,7 +317,8 @@
 (defn- check-function [f]
   (let [ret (type-key (:return-type f))
         param-env (reduce (fn [m p]
-                            (assoc m (:name p) (type-key (:type p))))
+                            (assoc m (:name p)
+                                   {:type (type-key (:type p)) :mutable? false}))
                           {} (:params f))
         [body _] (check-block (:body f) param-env ret)]
     (when (and ret (not= ret :void) (not (block-always-returns? body)))
@@ -251,7 +346,8 @@
 (defn check-file [ast]
   (trace/with-phase :check
     (try
-      (let [names (map :name (:declarations ast))
+      (let [imports (set (mapcat :names (:imports ast)))
+            names (map :name (:declarations ast))
             duplicate (first (for [[n xs] (group-by identity names)
                                    :when (> (count xs) 1)] n))]
         (when duplicate
@@ -259,18 +355,19 @@
                           {:diagnostic (diagnostic :name/duplicate
                                                    (str "duplicate declaration " duplicate)
                                                    (:span ast))})))
-        (let [decls (mapv (fn [d]
-                            (case (:node d)
-                              :function-decl (check-function d)
-                              (throw (ex-info "top-level declaration unsupported"
-                                              {:diagnostic (diagnostic :type/unsupported
-                                                                       (str "checker does not support " (:node d))
-                                                                       (:span d))}))))
-                          (:declarations ast))
-              _ (check-entry-point! decls)
-              checked (assoc ast :declarations decls)]
-          (trace/emit! {:event :check/summary :declarations (count decls)})
-          {:typed-ast checked :diagnostics []}))
+        (binding [*imports* imports]
+          (let [decls (mapv (fn [d]
+                              (case (:node d)
+                                :function-decl (check-function d)
+                                (throw (ex-info "top-level declaration unsupported"
+                                                {:diagnostic (diagnostic :type/unsupported
+                                                                         (str "checker does not support " (:node d))
+                                                                         (:span d))}))))
+                            (:declarations ast))
+                _ (check-entry-point! decls)
+                checked (assoc ast :declarations decls)]
+            (trace/emit! {:event :check/summary :declarations (count decls)})
+            {:typed-ast checked :diagnostics []})))
       (catch clojure.lang.ExceptionInfo e
         {:typed-ast nil
          :diagnostics [(or (:diagnostic (ex-data e))

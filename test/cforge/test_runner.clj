@@ -1,5 +1,6 @@
 (ns cforge.test-runner
   (:require [clojure.test :as t]
+            [cforge.application-test]
             [cforge.arena-provider-test]
             [cforge.core-test]
             [cforge.freestanding-libraries-test]
@@ -7,7 +8,8 @@
             [cforge.spec-coverage-test]))
 
 (defn -main [& _]
-  (let [{:keys [fail error]} (t/run-tests 'cforge.arena-provider-test
+  (let [{:keys [fail error]} (t/run-tests 'cforge.application-test
+                                          'cforge.arena-provider-test
                                           'cforge.core-test
                                           'cforge.freestanding-libraries-test
                                           'cforge.library-contract-test

@@ -1,5 +1,6 @@
 (ns cforge.eval
-  (:require [cforge.trace :as trace]))
+  (:require [cforge.host :as host]
+            [cforge.trace :as trace]))
 
 (defn- forge-value [type value] {:forge-type type :value value})
 (defn- truth [v] (boolean (:value v)))
@@ -11,6 +12,8 @@
     :i32 [(- 2147483648N) 2147483647N] :u32 [0N 4294967295N]
     :i64 [(- 9223372036854775808N) 9223372036854775807N]
     :u64 [0N 18446744073709551615N]
+    :isize [(- 9223372036854775808N) 9223372036854775807N]
+    :usize [0N 18446744073709551615N]
     nil))
 
 (defn- width-for [t]
@@ -18,7 +21,7 @@
     (contains? #{:i8 :u8} t) 8
     (contains? #{:i16 :u16} t) 16
     (contains? #{:i32 :u32} t) 32
-    (contains? #{:i64 :u64} t) 64
+    (contains? #{:i64 :u64 :isize :usize} t) 64
     :else nil))
 
 (defn- checked-int [t n span]
@@ -33,6 +36,13 @@
                     {:diagnostic {:category :runtime/type :severity :error
                                   :message (str "not an integer type: " t)
                                   :span span}}))))
+
+(defn- divide-by-zero! [span what]
+  (throw (ex-info "division by zero"
+                  {:diagnostic {:category :runtime/divide-by-zero
+                                :severity :error
+                                :message what
+                                :span span}})))
 
 (defn- big-and [a b] (bigint (.and (biginteger a) (biginteger b))))
 (defn- big-or [a b] (bigint (.or (biginteger a) (biginteger b))))
@@ -75,18 +85,10 @@
           :sub (checked-int t (- a b) (:span expr))
           :mul (checked-int t (* a b) (:span expr))
           :div (if (zero? b)
-                 (throw (ex-info "division by zero"
-                                 {:diagnostic {:category :runtime/divide-by-zero
-                                               :severity :error
-                                               :message "division by zero"
-                                               :span (:span expr)}}))
+                 (divide-by-zero! (:span expr) "division by zero")
                  (checked-int t (quot a b) (:span expr)))
           :rem (if (zero? b)
-                 (throw (ex-info "division by zero"
-                                 {:diagnostic {:category :runtime/divide-by-zero
-                                               :severity :error
-                                               :message "remainder by zero"
-                                               :span (:span expr)}}))
+                 (divide-by-zero! (:span expr) "remainder by zero")
                  (checked-int t (rem a b) (:span expr)))
           :eq (forge-value :bool (= a b))
           :neq (forge-value :bool (not= a b))
@@ -107,17 +109,31 @@
                                         :message (str "operator not implemented: " op)
                                         :span (:span expr)}})))))))
 
+(defn- eval-call [expr env]
+  (case (:builtin expr)
+    :std.console/write
+    (let [value (eval-expr (first (:args expr)) env)]
+      (host/console-write! (:value value))
+      (forge-value :void nil))
+    (throw (ex-info "call not executable yet"
+                    {:diagnostic {:category :runtime/unsupported
+                                  :severity :error
+                                  :message "call target not executable"
+                                  :span (:span expr)}}))))
+
 (defn eval-expr [expr env]
   (trace/emit! {:event :eval/expression :kind (:node expr) :span (:span expr)})
   (case (:node expr)
     :integer-literal (forge-value (:forge-type expr) (:value expr))
     :boolean-literal (forge-value :bool (:value expr))
+    :string-literal (forge-value :str (:value expr))
     :name (or (get env (:name expr))
               (throw (ex-info "unresolved runtime name"
                               {:diagnostic {:category :runtime/unresolved
                                             :severity :error
                                             :message (str "unresolved name " (:name expr))
                                             :span (:span expr)}})))
+    :call (eval-call expr env)
     :binary (eval-binary expr env)
     :unary (let [v (eval-expr (:expr expr) env)]
              (case (:op expr)
@@ -135,11 +151,43 @@
                                   :message (str "cannot evaluate " (:node expr))
                                   :span (:span expr)}}))))
 
+(defn- eval-compound-assignment [op current rhs span]
+  (let [t (:forge-type current)
+        a (:value current)
+        b (:value rhs)]
+    (case op
+      :add-assign (checked-int t (+ a b) span)
+      :sub-assign (checked-int t (- a b) span)
+      :mul-assign (checked-int t (* a b) span)
+      :div-assign (if (zero? b)
+                    (divide-by-zero! span "division by zero")
+                    (checked-int t (quot a b) span))
+      :rem-assign (if (zero? b)
+                    (divide-by-zero! span "remainder by zero")
+                    (checked-int t (rem a b) span))
+      (throw (ex-info "assignment operator unsupported"
+                      {:diagnostic {:category :runtime/unsupported
+                                    :severity :error
+                                    :message (str "assignment operator unsupported: " op)
+                                    :span span}})))))
+
+(defn- eval-assignment [stmt env]
+  (let [name (get-in stmt [:target :name])
+        current (get env name)
+        rhs (eval-expr (:value stmt) env)
+        value (if (= :assign (:op stmt))
+                rhs
+                (eval-compound-assignment (:op stmt) current rhs (:span stmt)))]
+    [{:flow :normal} (assoc env name value)]))
+
 (defn- eval-statement [stmt env]
   (case (:node stmt)
     :value-decl
     (let [value (eval-expr (:init stmt) env)]
       [{:flow :normal} (assoc env (:name stmt) value)])
+
+    :assignment
+    (eval-assignment stmt env)
 
     :return
     [{:flow :return :value (when (:expr stmt) (eval-expr (:expr stmt) env))} env]
@@ -147,15 +195,30 @@
     :if
     (let [condition (eval-expr (:condition stmt) env)]
       (if (truth condition)
-        (let [[flow _] (eval-block (:then stmt) env)] [flow env])
+        (eval-block (:then stmt) env)
         (if-let [else-node (:else stmt)]
           (if (= :block (:node else-node))
-            (let [[flow _] (eval-block else-node env)] [flow env])
+            (eval-block else-node env)
             (eval-statement else-node env))
           [{:flow :normal} env])))
 
+    :while
+    (loop [env env iterations 0]
+      (when (>= iterations 1000000)
+        (throw (ex-info "loop iteration limit exceeded"
+                        {:diagnostic {:category :runtime/loop-limit
+                                      :severity :error
+                                      :message "bootstrap interpreter loop exceeded 1000000 iterations"
+                                      :span (:span stmt)}})))
+      (if (truth (eval-expr (:condition stmt) env))
+        (let [[flow env'] (eval-block (:body stmt) env)]
+          (if (= :normal (:flow flow))
+            (recur env' (inc iterations))
+            [flow env']))
+        [{:flow :normal} env]))
+
     :block
-    (let [[flow _] (eval-block stmt env)] [flow env])
+    (eval-block stmt env)
 
     :expression-statement
     (do (eval-expr (:expr stmt) env) [{:flow :normal} env])

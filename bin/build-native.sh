@@ -17,12 +17,14 @@ cd "$ROOT"
 rm -rf target/classes
 mkdir -p target/classes target
 
-clojure -M -e '(binding [*compile-path* "target/classes"] (compile (quote cforge.main)))'
+clojure -J-Dclojure.compiler.direct-linking=true \
+  -M -e '(binding [*compile-path* "target/classes"] (compile (quote cforge.main)))'
 
 CLASSPATH="target/classes:$(clojure -Spath)"
 
 native-image \
   --no-fallback \
+  --initialize-at-build-time=clojure,cforge \
   -cp "$CLASSPATH" \
   cforge.main \
   target/cforge
