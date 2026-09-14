@@ -1,0 +1,52 @@
+name: Forge collections
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collections:
+    name: Forge collections smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CForge
+        uses: actions/checkout@v6
+
+      - name: Checkout Forge
+        uses: actions/checkout@v6
+        with:
+          repository: nickik/forge
+          path: .forge-toolchain
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Install Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.5
+        with:
+          cli: latest
+
+      - name: Resolve CForge dependencies
+        run: clojure -P -M:native
+
+      - name: Run canonical Forge collections smoke
+        run: |
+          cargo run --quiet \
+            --manifest-path .forge-toolchain/Cargo.toml \
+            -p forge-build --bin forge -- \
+            run --manifest-path .forge-toolchain/examples/collections-smoke/forge.fdn \
+            --target main \
+            --driver clojure \
+            --driver-arg -M:native \
+            --driver-arg --
