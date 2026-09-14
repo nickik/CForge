@@ -92,6 +92,7 @@ pub struct AllocatorOps {
     alloc: fn(*void, AllocRequest) -> Result[MemoryBlock, AllocError];
     free: fn(*void, MemoryBlock) -> Result[void, AllocError];
     resize: fn(*void, MemoryBlock, usize) -> Result[MemoryBlock, AllocError];
+    validate: fn(*void, MemoryBlock) -> Result[void, AllocError];
 }
 
 pub struct Allocator {
@@ -119,6 +120,13 @@ pub fn allocator_resize(
     new_size: usize
 ) -> Result[MemoryBlock, AllocError] {
     return allocator.ops.resize(allocator.context, block, new_size);
+}
+
+pub fn allocator_validate(
+    allocator: &mut Allocator,
+    block: MemoryBlock
+) -> Result[void, AllocError] {
+    return allocator.ops.validate(allocator.context, block);
 }
 
 pub struct ObjectCacheSpec {
