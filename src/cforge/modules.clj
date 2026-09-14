@@ -21,6 +21,9 @@
 (defn- module-name [ast]
   (str/join "." (get-in ast [:module :name])))
 
+(defn- import-name [segments]
+  (str/join "." segments))
+
 (defn- all-functions [ast]
   (into {}
         (for [decl (:declarations ast)
@@ -64,13 +67,21 @@
 
 (declare rewrite-expr rewrite-statement qualify-local-expr qualify-local-statement)
 
+(defn- member-path [expr]
+  (case (:node expr)
+    :name [(:name expr)]
+    :member (when-let [target-path (member-path (:target expr))]
+              (conj (vec target-path) (:member expr)))
+    nil))
+
 (defn- imported-call [expr imported-modules]
-  (let [callee (:callee expr)]
-    (when (and (= :member (:node callee))
-               (= :name (get-in callee [:target :node])))
-      (let [module (get-in callee [:target :name])]
+  (let [callee (:callee expr)
+        path (member-path callee)]
+    (when (and path (>= (count path) 2))
+      (let [function-name (last path)
+            module (str/join "." (butlast path))]
         (when (contains? imported-modules module)
-          [module (:member callee)])))))
+          [module function-name])))))
 
 (defn- rewrite-imported-call [expr libraries imported-modules]
   (when-let [[module function-name] (imported-call expr imported-modules)]
@@ -196,9 +207,9 @@
 (defn- local-library-imports [library libraries]
   (set
    (for [segments (mapcat :names (get-in library [:ast :imports]))
-         :when (and (= 1 (count segments))
-                    (contains? libraries (first segments)))]
-     (first segments))))
+         :let [module (import-name segments)]
+         :when (contains? libraries module)]
+     module)))
 
 (defn- linked-module-closure [initial libraries]
   (letfn [(visit [module seen]
@@ -238,10 +249,7 @@
    under qualified internal names for same-library calls."
   [root-ast libraries]
   (let [root-imports (:imports root-ast)
-        import-names (set (mapcat :names root-imports))
-        imported-modules (set (for [segments import-names
-                                    :when (= 1 (count segments))]
-                                (first segments)))]
+        imported-modules (set (map import-name (mapcat :names root-imports)))]
     (doseq [module imported-modules]
       (when-not (or (contains? libraries module)
                     (= module "core")
