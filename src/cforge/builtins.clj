@@ -29,13 +29,16 @@
    ["string_map" "get"] {:import ["std" "collections" "string_map"] :args [string-map-type :str] :return :str :builtin :std.string-map/get}
    ["string_map" "count"] {:import ["std" "collections" "string_map"] :args [string-map-type] :return :usize :builtin :std.string-map/count}})
 
-(defn resolve-call [expr imports]
+(defn signature-for-call [expr]
   (let [callee (:callee expr)]
     (when (and (= :member (:node callee))
                (= :name (get-in callee [:target :node])))
-      (when-let [signature (get signatures [(get-in callee [:target :name]) (:member callee)])]
-        (when (contains? imports (:import signature))
-          signature)))))
+      (get signatures [(get-in callee [:target :name]) (:member callee)]))))
+
+(defn resolve-call [expr imports]
+  (when-let [signature (signature-for-call expr)]
+    (when (contains? imports (:import signature))
+      signature)))
 
 (defn- lines [text]
   (if (empty? text) [] (str/split-lines text)))
