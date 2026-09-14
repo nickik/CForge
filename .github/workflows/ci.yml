@@ -104,7 +104,7 @@ jobs:
 
           GET2="$(run_ckv --database-file "$DB" get test)"
           test "$(printf '%s\n' "$GET2" | sed -n '1p')" = "7"
-          test "$(grep -c $'^test\\t' "$DB")" -eq 2
+          test "$(wc -l < "$DB")" -eq 2
 
   native-image:
     name: GraalVM native image
@@ -195,7 +195,7 @@ jobs:
 
           GET2="$(run_ckv --database-file "$DB" get test)"
           test "$(printf '%s\n' "$GET2" | sed -n '1p')" = "7"
-          test "$(grep -c $'^test\\t' "$DB")" -eq 2
+          test "$(wc -l < "$DB")" -eq 2
 
       - name: Upload native executable
         uses: actions/upload-artifact@v4
