@@ -16,11 +16,34 @@
     (is (empty? (:diagnostics result)))
     (is (= 0 (:exit result)))))
 
+(deftest imported-function-with-local-state-and-loop-runs
+  (testing "cross-package calls are real calls, not one-expression inlining"
+    (let [source (str "module test.cross_package_loop;\n"
+                      "import bootstrap_support;\n"
+                      "fn main() -> i32 {\n"
+                      "  val value: u32 = bootstrap_support.count_to(7);\n"
+                      "  if (value == 7) { return 0; } else { return 1; }\n"
+                      "}\n")
+          result (core/run-source source bootstrap-library)]
+      (is (empty? (:diagnostics result)))
+      (is (= 0 (:exit result))))))
+
+(deftest local-function-call-runs
+  (let [source (str "module test.local_call;\n"
+                    "fn add_one(value: u32) -> u32 { return value + 1; }\n"
+                    "fn main() -> i32 {\n"
+                    "  val value: u32 = add_one(8);\n"
+                    "  if (value == 9) { return 0; } else { return 1; }\n"
+                    "}\n")
+        result (core/run-source source)]
+    (is (empty? (:diagnostics result)))
+    (is (= 0 (:exit result)))))
+
 (deftest missing-library-is-rejected
   (let [source (str "module test.missing;\n"
                     "import absent;\n"
                     "fn main() -> i32 { return absent.answer(1); }\n")
-        result (core/check-source source [["bootstrap_support" "packages/bootstrap-support/src/lib.fg"]])]
+        result (core/check-source source bootstrap-library)]
     (is (= :link (:phase result)))
     (is (= :module/missing (get-in result [:diagnostics 0 :category])))))
 
