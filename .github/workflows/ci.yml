@@ -72,7 +72,9 @@ jobs:
           trap cleanup EXIT
 
           run_ckv() {
-            cargo run --quiet \
+            local output status
+            set +e
+            output="$(cargo run --quiet \
               --manifest-path .forge-toolchain/Cargo.toml \
               -p forge-build --bin forge -- \
               run --manifest-path .forge-toolchain/examples/ckv/forge.fdn \
@@ -80,7 +82,14 @@ jobs:
               --driver clojure \
               --driver-arg -M:native \
               --driver-arg -- \
-              -- "$@"
+              -- "$@")"
+            status=$?
+            set -e
+            if [[ $status -ne 0 ]]; then
+              printf '%s\n' "$output" >&2
+              return "$status"
+            fi
+            printf '%s\n' "$output"
           }
 
           SET1="$(run_ckv --database-file "$DB" set test 5)"
@@ -156,13 +165,22 @@ jobs:
           trap cleanup EXIT
 
           run_ckv() {
-            cargo run --quiet \
+            local output status
+            set +e
+            output="$(cargo run --quiet \
               --manifest-path .forge-toolchain/Cargo.toml \
               -p forge-build --bin forge -- \
               run --manifest-path .forge-toolchain/examples/ckv/forge.fdn \
               --target ckv \
               --driver ./target/cforge \
-              -- "$@"
+              -- "$@")"
+            status=$?
+            set -e
+            if [[ $status -ne 0 ]]; then
+              printf '%s\n' "$output" >&2
+              return "$status"
+            fi
+            printf '%s\n' "$output"
           }
 
           SET1="$(run_ckv --database-file "$DB" set test 5)"
