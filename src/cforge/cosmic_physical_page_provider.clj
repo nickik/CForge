@@ -40,22 +40,22 @@
        (not (contains? (:reserved s) page))
        (not-any? #(contains? (:pages %) page) (vals (:allocated s)))))
 
-(defn reserve-pages! [provider first-page count]
+(defn reserve-pages! [provider first-page page-count]
   (let [state (:state provider)
         s @state]
     (cond
-      (not (and (integer? first-page) (<= 0 first-page) (valid-positive-int? count)))
+      (not (and (integer? first-page) (<= 0 first-page) (valid-positive-int? page-count)))
       {:error :invalid-size}
 
-      (> (+ first-page count) (:total-pages s))
+      (> (+ first-page page-count) (:total-pages s))
       {:error :invalid-size}
 
-      (not-every? #(free-page? s %) (range first-page (+ first-page count)))
+      (not-every? #(free-page? s %) (range first-page (+ first-page page-count)))
       {:error :already-reserved}
 
       :else
       (do
-        (swap! state update :reserved into (range first-page (+ first-page count)))
+        (swap! state update :reserved into (range first-page (+ first-page page-count)))
         {:ok nil}))))
 
 (defn reserve-range! [provider address size]
@@ -72,34 +72,34 @@
                             (quot offset page-size)
                             (quot size page-size)))))
 
-(defn- contiguous-run [s count]
-  (when (<= count (:total-pages s))
+(defn- contiguous-run [s page-count]
+  (when (<= page-count (:total-pages s))
     (first
-     (for [start (range 0 (inc (- (:total-pages s) count)))
-           :let [pages (vec (range start (+ start count)))]
+     (for [start (range 0 (inc (- (:total-pages s) page-count)))
+           :let [pages (vec (range start (+ start page-count)))]
            :when (every? #(free-page? s %) pages)]
        pages))))
 
-(defn alloc-pages! [provider count contiguous?]
+(defn alloc-pages! [provider page-count contiguous?]
   (let [state (:state provider)
         s @state
         attempts (:allocation-attempts s)
         fail-after (:fail-after-allocations s)]
     (swap! state update :allocation-attempts inc)
     (cond
-      (not (valid-positive-int? count)) {:error :invalid-size}
+      (not (valid-positive-int? page-count)) {:error :invalid-size}
       (and fail-after (>= attempts fail-after)) {:error :out-of-memory}
       :else
       (let [pages (if contiguous?
-                    (contiguous-run s count)
-                    (vec (take count (filter #(free-page? s %) (range (:total-pages s))))))]
-        (if (not= count (count pages))
+                    (contiguous-run s page-count)
+                    (vec (take page-count (filter #(free-page? s %) (range (:total-pages s))))))]
+        (if (not= page-count (count pages))
           {:error (if contiguous? :unsuitable-memory :out-of-memory)}
           (let [id (:next-allocation-id s)
                 allocation {:id id
                             :pages (set pages)
                             :ordered-pages pages
-                            :count count
+                            :count page-count
                             :contiguous contiguous?}]
             (swap! state (fn [v]
                            (-> v
@@ -150,5 +150,5 @@
          (empty? (set/intersection (:reserved s) allocated-set))
          (= (:total-pages s)
             (+ (count (:reserved s))
-               (count allocated-set)
+               (count allocated-pages)
                (:free-pages (stats provider)))))))
