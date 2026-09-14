@@ -1,6 +1,8 @@
 (ns cforge.eval
-  (:require [cforge.host :as host]
+  (:require [cforge.builtins :as builtins]
             [cforge.trace :as trace]))
+
+(def ^:dynamic *functions* {})
 
 (defn- forge-value [type value] {:forge-type type :value value})
 (defn- truth [v] (boolean (:value v)))
@@ -46,41 +48,22 @@
 
 (defn- as-big-integer ^java.math.BigInteger [n]
   (cond
-    (instance? java.math.BigInteger n)
-    n
-
-    (instance? clojure.lang.BigInt n)
-    (.toBigInteger ^clojure.lang.BigInt n)
-
-    :else
-    (java.math.BigInteger/valueOf (long n))))
+    (instance? java.math.BigInteger n) n
+    (instance? clojure.lang.BigInt n) (.toBigInteger ^clojure.lang.BigInt n)
+    :else (java.math.BigInteger/valueOf (long n))))
 
 (defn- big-and [a b]
-  (let [^java.math.BigInteger a' (as-big-integer a)
-        ^java.math.BigInteger b' (as-big-integer b)]
-    (.and a' b')))
-
+  (.and (as-big-integer a) (as-big-integer b)))
 (defn- big-or [a b]
-  (let [^java.math.BigInteger a' (as-big-integer a)
-        ^java.math.BigInteger b' (as-big-integer b)]
-    (.or a' b')))
-
+  (.or (as-big-integer a) (as-big-integer b)))
 (defn- big-xor [a b]
-  (let [^java.math.BigInteger a' (as-big-integer a)
-        ^java.math.BigInteger b' (as-big-integer b)]
-    (.xor a' b')))
-
+  (.xor (as-big-integer a) (as-big-integer b)))
 (defn- big-not [a]
-  (let [^java.math.BigInteger a' (as-big-integer a)]
-    (.not a')))
-
+  (.not (as-big-integer a)))
 (defn- big-shift-left [a n]
-  (let [^java.math.BigInteger a' (as-big-integer a)]
-    (.shiftLeft a' n)))
-
+  (.shiftLeft (as-big-integer a) n))
 (defn- big-shift-right [a n]
-  (let [^java.math.BigInteger a' (as-big-integer a)]
-    (.shiftRight a' n)))
+  (.shiftRight (as-big-integer a) n))
 
 (defn- checked-shift-count! [t n span]
   (let [width (width-for t)]
@@ -140,17 +123,38 @@
                                         :message (str "operator not implemented: " op)
                                         :span (:span expr)}})))))))
 
+(defn- eval-function-call [expr env]
+  (let [name (:function expr)
+        function (get *functions* name)]
+    (when-not function
+      (throw (ex-info "function not found at runtime"
+                      {:diagnostic {:category :runtime/unresolved
+                                    :severity :error
+                                    :message (str "function not found: " name)
+                                    :span (:span expr)}})))
+    (let [values (mapv #(eval-expr % env) (:args expr))
+          call-env (zipmap (map :name (:params function)) values)
+          [flow _] (eval-block (:body function) call-env)]
+      (cond
+        (= :return (:flow flow))
+        (or (:value flow) (forge-value :void nil))
+
+        (= :void (:resolved-return-type function))
+        (forge-value :void nil)
+
+        :else
+        (throw (ex-info "function completed without return"
+                        {:diagnostic {:category :runtime/missing-return
+                                      :severity :error
+                                      :message (str name " completed without returning a value")
+                                      :span (:span function)}}))))))
+
 (defn- eval-call [expr env]
-  (case (:builtin expr)
-    :std.console/write
-    (let [value (eval-expr (first (:args expr)) env)]
-      (host/console-write! (:value value))
-      (forge-value :void nil))
-    (throw (ex-info "call not executable yet"
-                    {:diagnostic {:category :runtime/unsupported
-                                  :severity :error
-                                  :message "call target not executable"
-                                  :span (:span expr)}}))))
+  (if-let [builtin (:builtin expr)]
+    (let [values (mapv #(eval-expr % env) (:args expr))
+          raw (builtins/invoke builtin (mapv :value values))]
+      (forge-value (:forge-type expr) raw))
+    (eval-function-call expr env)))
 
 (defn eval-expr [expr env]
   (trace/emit! {:event :eval/expression :kind (:node expr) :span (:span expr)})
@@ -182,33 +186,9 @@
                                   :message (str "cannot evaluate " (:node expr))
                                   :span (:span expr)}}))))
 
-(defn- eval-compound-assignment [op current rhs span]
-  (let [t (:forge-type current)
-        a (:value current)
-        b (:value rhs)]
-    (case op
-      :add-assign (checked-int t (+ a b) span)
-      :sub-assign (checked-int t (- a b) span)
-      :mul-assign (checked-int t (* a b) span)
-      :div-assign (if (zero? b)
-                    (divide-by-zero! span "division by zero")
-                    (checked-int t (quot a b) span))
-      :rem-assign (if (zero? b)
-                    (divide-by-zero! span "remainder by zero")
-                    (checked-int t (rem a b) span))
-      (throw (ex-info "assignment operator unsupported"
-                      {:diagnostic {:category :runtime/unsupported
-                                    :severity :error
-                                    :message (str "assignment operator unsupported: " op)
-                                    :span span}})))))
-
 (defn- eval-assignment [stmt env]
   (let [name (get-in stmt [:target :name])
-        current (get env name)
-        rhs (eval-expr (:value stmt) env)
-        value (if (= :assign (:op stmt))
-                rhs
-                (eval-compound-assignment (:op stmt) current rhs (:span stmt)))]
+        value (eval-expr (:value stmt) env)]
     [{:flow :normal} (assoc env name value)]))
 
 (defn- eval-statement [stmt env]
@@ -271,23 +251,26 @@
 (defn eval-main [typed-ast]
   (trace/with-phase :eval
     (try
-      (let [main (first (filter #(and (= :function-decl (:node %))
-                                      (= "main" (:name %)))
-                                (:declarations typed-ast)))]
+      (let [functions (into {}
+                            (for [d (:declarations typed-ast)
+                                  :when (= :function-decl (:node d))]
+                              [(:name d) d]))
+            main (get functions "main")]
         (when-not main
           (throw (ex-info "main not found"
                           {:diagnostic {:category :name/main-missing :severity :error
                                         :message "main function not found"
                                         :span (:span typed-ast)}})))
-        (let [[flow _] (eval-block (:body main) {})]
-          (if (= :return (:flow flow))
-            (let [value (:value flow)]
-              (trace/emit! {:event :eval/return :value value})
-              {:value value :exit (int (:value value)) :diagnostics []})
-            (throw (ex-info "main completed without return"
-                            {:diagnostic {:category :runtime/missing-return :severity :error
-                                          :message "main completed without returning i32"
-                                          :span (:span main)}})))))
+        (binding [*functions* functions]
+          (let [[flow _] (eval-block (:body main) {})]
+            (if (= :return (:flow flow))
+              (let [value (:value flow)]
+                (trace/emit! {:event :eval/return :value value})
+                {:value value :exit (int (:value value)) :diagnostics []})
+              (throw (ex-info "main completed without return"
+                              {:diagnostic {:category :runtime/missing-return :severity :error
+                                            :message "main completed without returning i32"
+                                            :span (:span main)}}))))))
       (catch clojure.lang.ExceptionInfo e
         {:value nil :exit nil
          :diagnostics [(or (:diagnostic (ex-data e))
