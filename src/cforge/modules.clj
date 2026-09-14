@@ -21,6 +21,12 @@
 (defn- module-name [ast]
   (str/join "." (get-in ast [:module :name])))
 
+(defn- all-functions [ast]
+  (into {}
+        (for [decl (:declarations ast)
+              :when (= :function-decl (:node decl))]
+          [(:name decl) decl])))
+
 (defn- public-functions [ast]
   (into {}
         (for [decl (:declarations ast)
@@ -51,11 +57,12 @@
               {:logical-name logical-name
                :path path
                :ast ast
-               :functions (public-functions ast)})))
+               :functions (public-functions ast)
+               :all-functions (all-functions ast)})))
    {}
    library-specs))
 
-(declare rewrite-expr rewrite-statement)
+(declare rewrite-expr rewrite-statement qualify-local-expr qualify-local-statement)
 
 (defn- imported-call [expr imported-modules]
   (let [callee (:callee expr)]
@@ -138,18 +145,69 @@
     :block (rewrite-block stmt libraries imported-modules)
     stmt))
 
-(defn- qualified-public-declarations [module library]
-  (mapv (fn [[name function]]
-          (-> function
-              (assoc :name (str module "." name)
-                     :linked-module module)
-              (update :body #(rewrite-block % {} #{}))))
-        (:functions library)))
+(defn qualify-local-expr [expr module local-functions]
+  (if-not (map? expr)
+    expr
+    (case (:node expr)
+      :call (let [callee (:callee expr)
+                  callee' (if (and (= :name (:node callee))
+                                   (contains? local-functions (:name callee)))
+                            (assoc callee :name (str module "." (:name callee)))
+                            (qualify-local-expr callee module local-functions))]
+              (assoc expr
+                     :callee callee'
+                     :args (mapv #(qualify-local-expr % module local-functions) (:args expr))))
+      :binary (assoc expr
+                     :left (qualify-local-expr (:left expr) module local-functions)
+                     :right (qualify-local-expr (:right expr) module local-functions))
+      :unary (assoc expr :expr (qualify-local-expr (:expr expr) module local-functions))
+      :member (assoc expr :target (qualify-local-expr (:target expr) module local-functions))
+      :index (assoc expr
+                    :target (qualify-local-expr (:target expr) module local-functions)
+                    :index (qualify-local-expr (:index expr) module local-functions))
+      expr)))
+
+(defn- qualify-local-block [block module local-functions]
+  (assoc block :statements
+         (mapv #(qualify-local-statement % module local-functions) (:statements block))))
+
+(defn qualify-local-statement [stmt module local-functions]
+  (case (:node stmt)
+    :value-decl (assoc stmt :init (qualify-local-expr (:init stmt) module local-functions))
+    :assignment (assoc stmt
+                       :target (qualify-local-expr (:target stmt) module local-functions)
+                       :value (qualify-local-expr (:value stmt) module local-functions))
+    :return (cond-> stmt
+              (:expr stmt) (assoc :expr (qualify-local-expr (:expr stmt) module local-functions)))
+    :expression-statement (assoc stmt :expr (qualify-local-expr (:expr stmt) module local-functions))
+    :while (assoc stmt
+                  :condition (qualify-local-expr (:condition stmt) module local-functions)
+                  :body (qualify-local-block (:body stmt) module local-functions))
+    :if (assoc stmt
+               :condition (qualify-local-expr (:condition stmt) module local-functions)
+               :then (qualify-local-block (:then stmt) module local-functions)
+               :else (when-let [else (:else stmt)]
+                       (if (= :block (:node else))
+                         (qualify-local-block else module local-functions)
+                         (qualify-local-statement else module local-functions))))
+    :block (qualify-local-block stmt module local-functions)
+    stmt))
+
+(defn- qualified-library-declarations [module library]
+  (let [functions (:all-functions library)
+        local-names (set (keys functions))]
+    (mapv (fn [[name function]]
+            (-> function
+                (assoc :name (str module "." name)
+                       :linked-module module)
+                (update :body #(qualify-local-block % module local-names))))
+          functions)))
 
 (defn link-root
-  "Resolve root imports against supplied libraries and link exported dependency
-   functions into the root compilation unit. Calls remain real calls; they are no
-   longer expression-inlined by the bootstrap interpreter."
+  "Resolve root imports against supplied libraries and link dependency functions
+   into the root compilation unit. Only public functions may be referenced from
+   the root module, but private dependency helpers are retained under qualified
+   names so linked library implementations can call them normally."
   [root-ast libraries]
   (let [root-imports (:imports root-ast)
         import-names (set (mapcat :names root-imports))
@@ -166,7 +224,7 @@
                                                  (:span root-ast))}))))
     (let [linked-modules (filter #(contains? libraries %) imported-modules)
           library-imports (mapcat #(get-in libraries [% :ast :imports]) linked-modules)
-          linked-decls (mapcat #(qualified-public-declarations % (get libraries %)) linked-modules)
+          linked-decls (mapcat #(qualified-library-declarations % (get libraries %)) linked-modules)
           rewritten-root (mapv (fn [decl]
                                  (if (= :function-decl (:node decl))
                                    (assoc decl :body (rewrite-block (:body decl) libraries imported-modules))
