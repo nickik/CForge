@@ -1,0 +1,7 @@
+module std;
+
+import core;
+
+// Mirror of Forge's initial hosted standard-library root.
+// Hosted runtime bindings will be added only after the runtime ABI/platform
+// binding mechanism is specified.
