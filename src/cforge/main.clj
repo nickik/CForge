@@ -33,7 +33,11 @@
     (if-let [arg (first args)]
       (cond
         (= arg "--")
-        (recur nil mode pretty? trace? libraries (vec (next args)) positional)
+        (if (and (= mode :run) (= 1 (count positional)))
+          (recur nil mode pretty? trace? libraries (vec (next args)) positional)
+          ;; Clojure CLI commonly leaves its own option separator in argv before
+          ;; the actual CForge mode. Treat that form as a launcher separator.
+          (recur (next args) mode pretty? trace? libraries program-args positional))
 
         (contains? #{"--tokens" "--ast" "--check" "--run" "--conformance"} arg)
         (if mode
