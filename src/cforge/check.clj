@@ -46,7 +46,29 @@
                                              (str "expected " expected ", found " actual)
                                              span)}))))
 
+(defn- require-integer-type! [t span]
+  (when-not (contains? integer-ranges t)
+    (throw (ex-info "integer type required"
+                    {:diagnostic (diagnostic :type/mismatch
+                                             (str "integer type required, found " t)
+                                             span)}))))
+
 (declare check-expr check-block check-statement)
+
+(defn- check-negation [expr env expected]
+  (let [t (or expected :i32)
+        inner-expr (:expr expr)]
+    (require-integer-type! t (:span expr))
+    ;; Untyped numeric literals are mathematical values. The signed minimum value,
+    ;; e.g. -128:i8, is valid even though the positive magnitude 128 is not i8.
+    (if (= :integer-literal (:node inner-expr))
+      (let [value (- (:value inner-expr))]
+        (ensure-int-fits! value t (:span expr))
+        (assoc expr
+               :expr (assoc inner-expr :forge-type t :literal-negated? true)
+               :forge-type t))
+      (let [inner (check-expr inner-expr env t)]
+        (assoc expr :expr inner :forge-type t)))))
 
 (defn- check-expr [expr env expected]
   (case (:node expr)
@@ -77,10 +99,14 @@
         (let [inner (check-expr (:expr expr) env :bool)]
           (assoc expr :expr inner :forge-type :bool))
 
-        (contains? #{:neg :pos :bit-not} op)
-        (let [t (or expected :i32)
-              inner (check-expr (:expr expr) env t)]
-          (assoc expr :expr inner :forge-type t))
+        (= op :neg)
+        (check-negation expr env expected)
+
+        (contains? #{:pos :bit-not} op)
+        (let [t (or expected :i32)]
+          (require-integer-type! t (:span expr))
+          (let [inner (check-expr (:expr expr) env t)]
+            (assoc expr :expr inner :forge-type t)))
 
         :else
         (throw (ex-info "unsupported unary operator"
@@ -93,21 +119,25 @@
       (cond
         (contains? #{:add :sub :mul :div :rem :bit-and :bit-or :bit-xor :shl :shr} op)
         (let [t (or expected :i32)]
-          (when-not (contains? integer-ranges t)
-            (throw (ex-info "integer operation requires integer operands"
-                            {:diagnostic (diagnostic :type/mismatch
-                                                     (str "integer operator applied to " t)
-                                                     (:span expr))})))
+          (require-integer-type! t (:span expr))
           (let [left (check-expr (:left expr) env t)
                 right (check-expr (:right expr) env t)]
             (assoc expr :left left :right right :forge-type t)))
 
-        (contains? #{:eq :neq :lt :lte :gt :gte} op)
+        (contains? #{:eq :neq} op)
         (let [left (check-expr (:left expr) env nil)
               t (:forge-type left)
               right (check-expr (:right expr) env t)]
           (when expected (require-type! :bool expected (:span expr)))
           (assoc expr :left left :right right :forge-type :bool :operand-type t))
+
+        (contains? #{:lt :lte :gt :gte} op)
+        (let [left (check-expr (:left expr) env nil)
+              t (:forge-type left)]
+          (require-integer-type! t (:span expr))
+          (let [right (check-expr (:right expr) env t)]
+            (when expected (require-type! :bool expected (:span expr)))
+            (assoc expr :left left :right right :forge-type :bool :operand-type t)))
 
         (contains? #{:logical-and :logical-or} op)
         (let [left (check-expr (:left expr) env :bool)
@@ -143,7 +173,7 @@
     (if-let [expr (:expr stmt)]
       [(assoc stmt :expr (check-expr expr env return-type)) env]
       (do
-        (when return-type
+        (when (and return-type (not= :void return-type))
           (throw (ex-info "missing return value"
                           {:diagnostic (diagnostic :type/return
                                                    "return value required"
@@ -178,13 +208,45 @@
         (recur (next remaining) env' (conj checked checked-stmt)))
       [(assoc block :statements checked) env])))
 
+(defn- always-returns-statement? [stmt]
+  (case (:node stmt)
+    :return true
+    :block (boolean (some always-returns-statement? (:statements stmt)))
+    :if (and (:else stmt)
+             (always-returns-statement? (:then stmt))
+             (always-returns-statement? (:else stmt)))
+    false))
+
+(defn- block-always-returns? [block]
+  (boolean (some always-returns-statement? (:statements block))))
+
 (defn- check-function [f]
   (let [ret (type-key (:return-type f))
         param-env (reduce (fn [m p]
                             (assoc m (:name p) (type-key (:type p))))
                           {} (:params f))
         [body _] (check-block (:body f) param-env ret)]
+    (when (and ret (not= ret :void) (not (block-always-returns? body)))
+      (throw (ex-info "not all paths return a value"
+                      {:diagnostic (diagnostic :type/return
+                                               "not all paths return a value"
+                                               (:span f))})))
     (assoc f :resolved-return-type ret :body body)))
+
+(defn- check-entry-point! [decls]
+  (when-let [main (first (filter #(and (= :function-decl (:node %))
+                                       (= "main" (:name %)))
+                                 decls))]
+    (when (seq (:params main))
+      (throw (ex-info "main parameters unsupported in bootstrap"
+                      {:diagnostic (diagnostic :type/main
+                                               "bootstrap main must take no parameters"
+                                               (:span main))})))
+    (when (not= :i32 (:resolved-return-type main))
+      (throw (ex-info "invalid main return type"
+                      {:diagnostic (diagnostic :type/main
+                                               "bootstrap main must return i32"
+                                               (:span main))}))))
 
 (defn check-file [ast]
   (trace/with-phase :check
@@ -205,6 +267,7 @@
                                                                        (str "checker does not support " (:node d))
                                                                        (:span d))}))))
                           (:declarations ast))
+              _ (check-entry-point! decls)
               checked (assoc ast :declarations decls)]
           (trace/emit! {:event :check/summary :declarations (count decls)})
           {:typed-ast checked :diagnostics []}))
