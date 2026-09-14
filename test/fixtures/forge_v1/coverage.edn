@@ -1,0 +1,186 @@
+{:suite :forge/v1-feature-coverage
+ :version 1
+ :cases
+ [
+  ;; Source and lexical structure
+  {:id :lex/line-comment :feature :lex/comments :phase :parse :expect :accept :bootstrap true
+   :source "module test; // comment\nfn main() -> i32 { return 0; }"}
+  {:id :lex/block-comment :feature :lex/comments :phase :parse :expect :accept :bootstrap true
+   :source "module test; /* comment */ fn main() -> i32 { return 0; }"}
+  {:id :lex/nested-block-comment :feature :lex/nested-comments :phase :parse :expect :accept :status :future
+   :source "module test; /* outer /* inner */ outer */ fn main() -> i32 { return 0; }"}
+  {:id :lex/unterminated-comment :feature :lex/comments :phase :parse :expect :reject :category :lex/unterminated-comment :bootstrap true
+   :source "module test; /*"}
+  {:id :lex/string :feature :literal/string :phase :parse :expect :accept :status :future
+   :source "module test; fn main() -> i32 { val s: str = \"hello\"; return 0; }"}
+  {:id :lex/char :feature :literal/char :phase :parse :expect :accept :status :future
+   :source "module test; fn main() -> i32 { val c: char = 'a'; return 0; }"}
+  {:id :lex/c-string :feature :literal/c-string :phase :parse :expect :accept :status :future
+   :source "module test; fn main() -> i32 { val s = c\"hello\"; return 0; }"}
+  {:id :lex/hex-int :feature :literal/integer-bases :phase :run :expect :exit :exit 0 :status :future
+   :source "module test; fn main() -> i32 { val x: u32 = 0xff; if (x == 255) { return 0; } else { return 1; } }"}
+  {:id :lex/binary-int :feature :literal/integer-bases :phase :run :expect :exit :exit 0 :status :future
+   :source "module test; fn main() -> i32 { val x: u32 = 0b1010; if (x == 10) { return 0; } else { return 1; } }"}
+  {:id :lex/suffixed-int :feature :literal/numeric-suffix :phase :check :expect :accept :status :future
+   :source "module test; fn main() -> i32 { val x = 42u32; return 0; }"}
+  {:id :lex/float-exponent :feature :literal/float :phase :check :expect :accept :status :future
+   :source "module test; fn main() -> i32 { val x: f64 = 1.0e6f64; return 0; }"}
+
+  ;; Modules and declarations
+  {:id :module/qualified :feature :module/declaration :phase :parse :expect :accept :bootstrap true
+   :source "module alpha.beta; fn main() -> i32 { return 0; }"}
+  {:id :module/import-many :feature :module/import :phase :parse :expect :accept :bootstrap true
+   :source "module test; import std.io, std.mem; fn main() -> i32 { return 0; }"}
+  {:id :decl/val :feature :binding/val :phase :run :expect :exit :exit 0 :bootstrap true
+   :source "module test; fn main() -> i32 { val x: i32 = 1; return x - 1; }"}
+  {:id :decl/var-assignment :feature :binding/var :phase :run :expect :exit :exit 0 :status :future
+   :source "module test; fn main() -> i32 { var x: i32 = 1; x = 2; return x - 2; }"}
+  {:id :decl/const :feature :binding/const :phase :check :expect :accept :status :future
+   :source "module test; const N: u32 = 4; fn main() -> i32 { return 0; }"}
+  {:id :decl/inference :feature :binding/inference :phase :check :expect :accept :status :future
+   :source "module test; fn main() -> i32 { val x = 10u32; return 0; }"}
+  {:id :decl/uninitialized-read :feature :binding/definite-init :phase :check :expect :reject :category :init/uninitialized :status :future
+   :source "module test; fn main() -> i32 { var x: i32; val y: i32 = x; return y; }"}
+
+  ;; Types
+  {:id :type/struct :feature :type/struct :phase :parse :expect :accept :status :future
+   :source "module test; struct Point { x: i32; y: i32; } fn main() -> i32 { return 0; }"}
+  {:id :type/enum :feature :type/enum :phase :parse :expect :accept :status :future
+   :source "module test; enum Color { Red, Green, Blue } fn main() -> i32 { return 0; }"}
+  {:id :type/tagged :feature :type/tagged :phase :parse :expect :accept :status :future
+   :source "module test; tagged Shape { Circle { radius: f32; }, Point } fn main() -> i32 { return 0; }"}
+  {:id :type/distinct :feature :type/distinct :phase :parse :expect :accept :status :future
+   :source "module test; distinct UserId: u32; fn main() -> i32 { return 0; }"}
+  {:id :type/alias :feature :type/alias :phase :parse :expect :accept :status :future
+   :source "module test; type ByteCount = usize; fn main() -> i32 { return 0; }"}
+  {:id :type/range :feature :type/range :phase :parse :expect :accept :status :future
+   :source "module test; type Percentage = u8 @range(0..=100); fn main() -> i32 { return 0; }"}
+  {:id :type/bitstruct :feature :type/bitstruct :phase :parse :expect :accept :status :future
+   :source "module test; bitstruct Status: u16 { ready: 1; error: 1; reserved: 14; } fn main() -> i32 { return 0; }"}
+  {:id :type/array :feature :type/array :phase :check :expect :accept :status :future
+   :source "module test; fn main() -> i32 { val a: [u32; 4] = [1,2,3,4]; return 0; }"}
+  {:id :type/slice :feature :type/slice :phase :parse :expect :accept :status :future
+   :source "module test; fn sum(values: u32[]) -> u64 { return 0; } fn main() -> i32 { return 0; }"}
+  {:id :type/reference :feature :type/reference :phase :parse :expect :accept :status :future
+   :source "module test; fn f(x: &u32) -> u32 { return *x; } fn main() -> i32 { return 0; }"}
+  {:id :type/mut-reference :feature :type/reference-mut :phase :parse :expect :accept :status :future
+   :source "module test; fn f(x: &mut u32) -> void { } fn main() -> i32 { return 0; }"}
+  {:id :type/raw-pointer :feature :type/raw-pointer :phase :parse :expect :accept :status :future
+   :source "module test; fn f(p: *u32) -> void { } fn main() -> i32 { return 0; }"}
+  {:id :type/option :feature :type/option :phase :parse :expect :accept :status :future
+   :source "module test; fn f() -> u32? { return None; } fn main() -> i32 { return 0; }"}
+  {:id :type/result :feature :type/result :phase :parse :expect :accept :status :future
+   :source "module test; fn f() -> Result[u32, Error] { return Ok(1); } fn main() -> i32 { return 0; }"}
+  {:id :type/no-null :feature :type/no-null :phase :check :expect :reject :category :name/unresolved :status :future
+   :source "module test; fn main() -> i32 { val x: u32? = null; return 0; }"}
+
+  ;; Conversions and arithmetic
+  {:id :conv/mixed-width :feature :conversion/strict :phase :check :expect :reject :category :type/mismatch :bootstrap true
+   :source "module test; fn main() -> i32 { val a: u8 = 1; val b: u32 = 2; val c: u32 = a + b; return 0; }"}
+  {:id :conv/bool-int :feature :conversion/bool-int :phase :check :expect :reject :category :type/mismatch :bootstrap true
+   :source "module test; fn main() -> i32 { val x: i32 = true; return 0; }"}
+  {:id :arith/precedence :feature :arithmetic/precedence :phase :run :expect :exit :exit 0 :bootstrap true
+   :source "module test; fn main() -> i32 { val x: i32 = 2 + 3 * 4; if (x == 14) { return 0; } else { return 1; } }"}
+  {:id :arith/signed-min :feature :arithmetic/literal-context :phase :check :expect :accept :bootstrap true
+   :source "module test; fn main() -> i32 { val x: i8 = -128; return 0; }"}
+  {:id :arith/overflow :feature :arithmetic/checked-overflow :phase :run :expect :reject :category :runtime/overflow :bootstrap true
+   :source "module test; fn main() -> i32 { val x: i8 = 127 + 1; return 0; }"}
+  {:id :arith/div-zero :feature :arithmetic/div-zero :phase :run :expect :reject :category :runtime/divide-by-zero :bootstrap true
+   :source "module test; fn main() -> i32 { val x: i32 = 1 / 0; return x; }"}
+  {:id :arith/shift-oob :feature :arithmetic/shift-range :phase :run :expect :reject :category :runtime/shift-out-of-range :bootstrap true
+   :source "module test; fn main() -> i32 { val x: i8 = 1 << 8; return 0; }"}
+  {:id :arith/wrap :feature :arithmetic/wrapping :phase :run :expect :exit :exit 0 :status :future
+   :source "module test; fn main() -> i32 { val x: u8 = @wrap(255 + 1); if (x == 0) { return 0; } else { return 1; } }"}
+  {:id :logic/short-circuit :feature :logic/short-circuit :phase :run :expect :exit :exit 0 :bootstrap true
+   :source "module test; fn main() -> i32 { if (false && (1 / 0 == 0)) { return 1; } else { return 0; } }"}
+  {:id :logic/xor :feature :logic/xor :phase :run :expect :exit :exit 0 :status :future
+   :source "module test; fn main() -> i32 { if (true xor false) { return 0; } else { return 1; } }"}
+
+  ;; Control flow and patterns
+  {:id :flow/if :feature :flow/if :phase :run :expect :exit :exit 0 :bootstrap true
+   :source "module test; fn main() -> i32 { if (true) { return 0; } else { return 1; } }"}
+  {:id :flow/missing-return :feature :flow/return-analysis :phase :check :expect :reject :category :type/return :bootstrap true
+   :source "module test; fn main() -> i32 { if (true) { return 0; } }"}
+  {:id :flow/while :feature :flow/while :phase :run :expect :exit :exit 0 :status :future
+   :source "module test; fn main() -> i32 { var x: i32 = 0; while (x < 3) { x += 1; } return x - 3; }"}
+  {:id :flow/c-for :feature :flow/for-c :phase :run :expect :exit :exit 0 :status :future
+   :source "module test; fn main() -> i32 { var n: i32 = 0; for (var i: i32 = 0; i < 4; i += 1) { n += 1; } return n - 4; }"}
+  {:id :flow/for-in :feature :flow/for-in :phase :parse :expect :accept :status :future
+   :source "module test; fn main() -> i32 { val a: [i32;2] = [1,2]; for (val x in a) { } return 0; }"}
+  {:id :flow/break-continue :feature :flow/break-continue :phase :parse :expect :accept :status :future
+   :source "module test; fn main() -> i32 { while (true) { continue; break; } return 0; }"}
+  {:id :flow/switch :feature :flow/switch :phase :parse :expect :accept :status :future
+   :source "module test; fn main() -> i32 { switch (1) { case 1: return 0; default: return 1; } }"}
+  {:id :flow/match :feature :flow/match :phase :parse :expect :accept :status :future
+   :source "module test; fn main() -> i32 { match (1) { 1 => return 0;, _ => return 1; } }"}
+  {:id :pattern/range :feature :pattern/range :phase :parse :expect :accept :status :future
+   :source "module test; fn main() -> i32 { match (42) { 0..=100 => return 0;, _ => return 1; } }"}
+  {:id :pattern/or :feature :pattern/or :phase :parse :expect :accept :status :future
+   :source "module test; enum E { A, B, C } fn main() -> i32 { match (E::A) { E::A | E::B => return 0;, _ => return 1; } }"}
+  {:id :pattern/as :feature :pattern/as :phase :parse :expect :accept :status :future
+   :source "module test; fn main() -> i32 { match (1) { whole @ 1 => return 0;, _ => return 1; } }"}
+  {:id :pattern/guard :feature :pattern/guard :phase :parse :expect :accept :status :future
+   :source "module test; fn main() -> i32 { match (1) { value when value > 0 => return 0;, _ => return 1; } }"}
+  {:id :pattern/exhaustive :feature :pattern/exhaustiveness :phase :check :expect :reject :category :pattern/non-exhaustive :status :future
+   :source "module test; enum E { A, B } fn f(e: E) -> i32 { match (e) { E::A => return 1; } } fn main() -> i32 { return 0; }"}
+  {:id :pattern/destructure :feature :pattern/destructure :phase :check :expect :accept :status :future
+   :source "module test; struct Point { x: i32; y: i32; } fn main() -> i32 { val p: Point = Point{x:1,y:2}; val Point{x,y} = p; return x+y-3; }"}
+
+  ;; Functions, closures, errors, defer
+  {:id :fn/call :feature :function/call :phase :run :expect :exit :exit 0 :status :future
+   :source "module test; fn add(a:i32,b:i32)->i32{return a+b;} fn main()->i32{return add(2,3)-5;}"}
+  {:id :fn/recursion :feature :function/recursion :phase :run :expect :exit :exit 0 :status :future
+   :source "module test; fn f(n:i32)->i32{if(n==0){return 0;}else{return f(n-1);}} fn main()->i32{return f(10);}"}
+  {:id :fn/nfn-default :feature :function/named-default :phase :parse :expect :accept :status :future
+   :source "module test; nfn f(x:i32, y:i32=2)->i32{return x+y;} fn main()->i32{return 0;}"}
+  {:id :fn/overload :feature :function/overload :phase :check :expect :accept :status :future
+   :source "module test; fn f(x:i32)->i32{return x;} fn f(x:u32)->u32{return x;} fn main()->i32{return 0;}"}
+  {:id :fn/function-pointer :feature :function/pointer :phase :check :expect :accept :status :future
+   :source "module test; fn square(x:u32)->u32{return x*x;} fn main()->i32{val f: fn(u32)->u32=square;return 0;}"}
+  {:id :fn/closure-value :feature :closure/value-capture :phase :check :expect :accept :status :future
+   :source "module test; fn main()->i32{val factor:u32=4;val scale=[factor](x:u32)->u32{return x*factor;};return 0;}"}
+  {:id :fn/closure-mut :feature :closure/mut-capture :phase :check :expect :accept :status :future
+   :source "module test; fn main()->i32{var count:u32=0;val next=[&mut count]()->u32{count+=1;return count;};return 0;}"}
+  {:id :fn/result-propagation :feature :result/propagation :phase :parse :expect :accept :status :future
+   :source "module test; fn f()->Result[u32,E]{val x=g()?;return Ok(x);} fn main()->i32{return 0;}"}
+  {:id :fn/defer :feature :flow/defer :phase :parse :expect :accept :status :future
+   :source "module test; fn main()->i32{defer cleanup();return 0;}"}
+  {:id :fn/tail :feature :function/tail-required :phase :parse :expect :accept :status :future
+   :source "module test; fn loop(n:i32)->i32{return tail loop(n);} fn main()->i32{return 0;}"}
+
+  ;; Safety, context, metadata, readers
+  {:id :safe/unsafe-block :feature :safety/unsafe :phase :parse :expect :accept :status :future
+   :source "module test; fn main()->i32{unsafe { val p:*u32 = address(); val x:u32=*p; } return 0;}"}
+  {:id :safe/raw-deref-outside :feature :safety/unsafe-required :phase :check :expect :reject :category :unsafe/required :status :future
+   :source "module test; fn f(p:*u32)->u32{return *p;} fn main()->i32{return 0;}"}
+  {:id :safe/bounds :feature :safety/bounds :phase :run :expect :reject :category :runtime/bounds :status :future
+   :source "module test; fn main()->i32{val a:[i32;1]=[1];return a[1];}"}
+  {:id :context/override :feature :context/override :phase :parse :expect :accept :status :future
+   :source "module test; fn main()->i32{with context {:logger &logger} { run(); } return 0;}"}
+  {:id :reader/uuid :feature :reader/forms :phase :parse :expect :accept :status :future
+   :source "module test; const ID = #uuid \"550e8400-e29b-41d4-a716-446655440000\"; fn main()->i32{return 0;}"}
+  {:id :metadata/inline :feature :metadata/simple :phase :parse :expect :accept :status :future
+   :source "module test; @inline fn f()->i32{return 0;} fn main()->i32{return 0;}"}
+  {:id :metadata/structured :feature :metadata/structured :phase :parse :expect :accept :status :future
+   :source "module test; @{:doc/category :network} fn f()->i32{return 0;} fn main()->i32{return 0;}"}
+  {:id :impl/method :feature :impl/method :phase :parse :expect :accept :status :future
+   :source "module test; struct P{x:f32;} impl P { fn value(self:&P)->f32{return self.x;} } fn main()->i32{return 0;}"}
+
+  ;; Concurrency and FFI
+  {:id :concurrency/select :feature :concurrency/select :phase :parse :expect :accept :status :future
+   :source "module test; fn main()->i32{select { recv jobs -> job => { process(job); } timeout #duration \"100ms\" => { return 0; } } return 0;}"}
+  {:id :ffi/extern-c :feature :ffi/c-abi :phase :parse :expect :accept :status :future
+   :source "module test; extern \"C\" { fn puts(s:*byte)->i32; } fn main()->i32{return 0;}"}
+  {:id :ffi/repr-c :feature :ffi/repr-c :phase :parse :expect :accept :status :future
+   :source "module test; @repr(c) struct CPoint{x:i32;y:i32;} fn main()->i32{return 0;}"}
+
+  ;; Explicitly absent v1 features
+  {:id :absent/null :feature :absent/null :phase :check :expect :reject :category :name/unresolved :status :future
+   :source "module test; fn main()->i32{val x = null;return 0;}"}
+  {:id :absent/implicit-promotion :feature :absent/c-promotion :phase :check :expect :reject :category :type/mismatch :bootstrap true
+   :source "module test; fn main()->i32{val a:u8=1;val b:u32=2;val c:u32=a+b;return 0;}"}
+  {:id :absent/exceptions :feature :absent/exceptions :phase :parse :expect :reject :category :parse/unexpected-token :status :future
+   :source "module test; fn main()->i32{try { return 0; } catch { return 1; }}"}
+  {:id :absent/generics :feature :absent/user-generics :phase :parse :expect :reject :category :parse/unexpected-token :status :future
+   :source "module test; fn identity[T](x:T)->T{return x;} fn main()->i32{return 0;}"}
+ ]}
