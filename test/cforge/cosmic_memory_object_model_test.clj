@@ -11,7 +11,7 @@
     :provider (phys/make-provider 4096 16)
     :store (mem/make-store store-options)}))
 
-(deftest create-rounds-backing-and-charges-metadata
+(deftest create-rounds-backing-and-publishes-handle
   (let [{:keys [pool provider store]} (setup {:metadata-charge 64})
         object (:ok (mem/create! store pool provider {:size 5000
                                                       :physically-contiguous? false}))]
@@ -24,17 +24,25 @@
     (is (= 2 (:allocated-pages (phys/stats provider))))
     (is (phys/allocation-zeroed? provider (:allocation object)))
     (is (= 1 (mem/object-count store)))
+    (is (= 1 (mem/kernel-object-count store)))
+    (is (= 1 (mem/live-handle-count store)))
+    (is (= 0 (mem/reserved-handle-count store)))
+    (is (= {:ok (:id object)} (mem/lookup-handle store (:handle object))))
     (is (pool/valid-invariants? pool))
     (is (phys/valid-invariants? provider))))
 
-(deftest destruction-releases-backing-and-accounting
+(deftest destruction-releases-handle-object-backing-and-accounting
   (let [{:keys [pool provider store]} (setup)
         object (:ok (mem/create! store pool provider {:size 4096
-                                                      :physically-contiguous? false}))]
+                                                      :physically-contiguous? false}))
+        old-handle (:handle object)]
     (is (= {:ok nil} (mem/destroy! store pool provider object)))
     (is (= 0 (:charged (pool/usage pool))))
     (is (= 0 (:allocated-pages (phys/stats provider))))
     (is (= 0 (mem/object-count store)))
+    (is (= 0 (mem/kernel-object-count store)))
+    (is (= 0 (mem/live-handle-count store)))
+    (is (= :invalid-handle (:error (mem/lookup-handle store old-handle))))
     (is (= :invalid-object (:error (mem/destroy! store pool provider object))))))
 
 (deftest pool-limit-failure-does-not-touch-provider
@@ -46,7 +54,9 @@
                                                             :physically-contiguous? false}))))
     (is (= 0 (:charged (pool/usage memory-pool))))
     (is (= 0 (:allocated-pages (phys/stats provider))))
-    (is (= 0 (mem/object-count store)))))
+    (is (= 0 (mem/object-count store)))
+    (is (= 0 (mem/kernel-object-count store)))
+    (is (= 0 (mem/live-handle-count store)))))
 
 (deftest provider-failure-rolls-back-charge
   (let [memory-pool (pool/make-root-pool 65536)
@@ -57,7 +67,9 @@
                                                             :physically-contiguous? false}))))
     (is (= 0 (:charged (pool/usage memory-pool))))
     (is (= 0 (:allocated-pages (phys/stats provider))))
-    (is (= 0 (mem/object-count store)))))
+    (is (= 0 (mem/object-count store)))
+    (is (= 0 (mem/kernel-object-count store)))
+    (is (= 0 (mem/live-handle-count store)))))
 
 (deftest failure-after-charge-rolls-back-everything
   (let [{:keys [pool provider]} (setup)
@@ -67,7 +79,9 @@
                                                      :physically-contiguous? false}))))
     (is (= 0 (:charged (pool/usage pool))))
     (is (= 0 (:allocated-pages (phys/stats provider))))
-    (is (= 0 (mem/object-count store)))))
+    (is (= 0 (mem/object-count store)))
+    (is (= 0 (mem/kernel-object-count store)))
+    (is (= 0 (mem/live-handle-count store)))))
 
 (deftest failure-after-physical-allocation-rolls-back-everything
   (let [{:keys [pool provider]} (setup)
@@ -77,9 +91,23 @@
                                                      :physically-contiguous? false}))))
     (is (= 0 (:charged (pool/usage pool))))
     (is (= 0 (:allocated-pages (phys/stats provider))))
-    (is (= 0 (mem/object-count store)))))
+    (is (= 0 (mem/object-count store)))
+    (is (= 0 (mem/kernel-object-count store)))
+    (is (= 0 (mem/live-handle-count store)))))
 
-(deftest failure-before-publish-rolls-back-everything
+(deftest failure-after-object-construction-rolls-back-everything
+  (let [{:keys [pool provider]} (setup)
+        store (mem/make-store {:fail-stage :after-object-construction})]
+    (is (= :injected-failure
+           (:error (mem/create! store pool provider {:size 4096
+                                                     :physically-contiguous? false}))))
+    (is (= 0 (:charged (pool/usage pool))))
+    (is (= 0 (:allocated-pages (phys/stats provider))))
+    (is (= 0 (mem/object-count store)))
+    (is (= 0 (mem/kernel-object-count store)))
+    (is (= 0 (mem/live-handle-count store)))))
+
+(deftest failure-before-publish-cancels-reservation-and-rolls-back
   (let [{:keys [pool provider]} (setup)
         store (mem/make-store {:fail-stage :before-publish})]
     (is (= :injected-failure
@@ -88,5 +116,39 @@
     (is (= 0 (:charged (pool/usage pool))))
     (is (= 0 (:allocated-pages (phys/stats provider))))
     (is (= 0 (mem/object-count store)))
+    (is (= 0 (mem/kernel-object-count store)))
+    (is (= 0 (mem/live-handle-count store)))
+    (is (= 0 (mem/reserved-handle-count store)))
     (is (pool/valid-invariants? pool))
     (is (phys/valid-invariants? provider))))
+
+(deftest failure-after-publish-unpublishes-and-rolls-back
+  (let [{:keys [pool provider]} (setup)
+        store (mem/make-store {:fail-stage :after-publish})]
+    (is (= :injected-failure
+           (:error (mem/create! store pool provider {:size 4096
+                                                     :physically-contiguous? false}))))
+    (is (= 0 (:charged (pool/usage pool))))
+    (is (= 0 (:allocated-pages (phys/stats provider))))
+    (is (= 0 (mem/object-count store)))
+    (is (= 0 (mem/kernel-object-count store)))
+    (is (= 0 (mem/live-handle-count store)))
+    (is (= 0 (mem/reserved-handle-count store)))))
+
+(deftest handle-table-full-rolls-back-object-pages-and-charge
+  (let [{:keys [pool provider]} (setup)
+        store (mem/make-store {:handle-capacity 1})
+        first-object (:ok (mem/create! store pool provider {:size 4096
+                                                            :physically-contiguous? false}))]
+    (is first-object)
+    (let [before-charge (:charged (pool/usage pool))
+          before-pages (:allocated-pages (phys/stats provider))]
+      (is (= :publish-failure
+             (:error (mem/create! store pool provider {:size 4096
+                                                       :physically-contiguous? false}))))
+      (is (= before-charge (:charged (pool/usage pool))))
+      (is (= before-pages (:allocated-pages (phys/stats provider))))
+      (is (= 1 (mem/object-count store)))
+      (is (= 1 (mem/kernel-object-count store)))
+      (is (= 1 (mem/live-handle-count store)))
+      (is (= 0 (mem/reserved-handle-count store))))))
