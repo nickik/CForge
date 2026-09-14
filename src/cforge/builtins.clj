@@ -4,7 +4,6 @@
             [cforge.host :as host]
             [cforge.host-services :as services]))
 
-(def string-map-type :std.collections.string_map.StringMap)
 (def file-lock-type :std.lock.FileLock)
 
 (def signatures
@@ -30,6 +29,9 @@
    ["string" "byte_len"] {:import ["std" "string"] :args [:str] :return :usize :builtin :std.string/byte-len}
    ["string" "byte_at"] {:import ["std" "string"] :args [:str :usize] :return :usize :builtin :std.string/byte-at}
 
+   ;; These raw typed stores are CForge bootstrap machinery only. They support
+   ;; forge-collections-bootstrap; they are not the production Forge collection
+   ;; API and must not grow collection-level allocation policy.
    ["raw_u8" "create"] {:import ["std" "collections" "raw_u8"] :args [:usize] :return :usize :builtin :std.raw-u8/create}
    ["raw_u8" "slots"] {:import ["std" "collections" "raw_u8"] :args [:usize] :return :usize :builtin :std.raw-u8/slots}
    ["raw_u8" "get"] {:import ["std" "collections" "raw_u8"] :args [:usize :usize] :return :u8 :builtin :std.raw-u8/get}
@@ -56,13 +58,7 @@
    ["raw_string" "get"] {:import ["std" "collections" "raw_string"] :args [:usize :usize] :return :str :builtin :std.raw-string/get}
    ["raw_string" "set"] {:import ["std" "collections" "raw_string"] :args [:usize :usize :str] :return :void :builtin :std.raw-string/set}
    ["raw_string" "resize"] {:import ["std" "collections" "raw_string"] :args [:usize :usize] :return :void :builtin :std.raw-string/resize}
-   ["raw_string" "swap"] {:import ["std" "collections" "raw_string"] :args [:usize :usize] :return :void :builtin :std.raw-string/swap}
-
-   ["string_map" "create"] {:import ["std" "collections" "string_map"] :args [] :return string-map-type :builtin :std.string-map/create}
-   ["string_map" "put"] {:import ["std" "collections" "string_map"] :args [string-map-type :str :str] :return :void :builtin :std.string-map/put}
-   ["string_map" "contains"] {:import ["std" "collections" "string_map"] :args [string-map-type :str] :return :bool :builtin :std.string-map/contains}
-   ["string_map" "get"] {:import ["std" "collections" "string_map"] :args [string-map-type :str] :return :str :builtin :std.string-map/get}
-   ["string_map" "count"] {:import ["std" "collections" "string_map"] :args [string-map-type] :return :usize :builtin :std.string-map/count}})
+   ["raw_string" "swap"] {:import ["std" "collections" "raw_string"] :args [:usize :usize] :return :void :builtin :std.raw-string/swap}})
 
 (defn signature-for-call [expr]
   (let [callee (:callee expr)]
@@ -139,9 +135,4 @@
     :std.raw-string/resize (do (storage/resize-string! (nth args 0) (nth args 1)) nil)
     :std.raw-string/swap (do (storage/swap-string! (nth args 0) (nth args 1)) nil)
 
-    :std.string-map/create (services/map-create)
-    :std.string-map/put (do (services/map-put! (nth args 0) (nth args 1) (nth args 2)) nil)
-    :std.string-map/contains (services/map-contains? (nth args 0) (nth args 1))
-    :std.string-map/get (services/map-get (nth args 0) (nth args 1))
-    :std.string-map/count (services/map-count (first args))
     (throw (ex-info "unknown builtin" {:builtin builtin}))))
