@@ -9,7 +9,8 @@
             [cforge.hosted-std-forge-test]
             [cforge.library-contract-test]
             [cforge.module-link-test]
-            [cforge.spec-coverage-test]))
+            [cforge.spec-coverage-test]
+            [cforge.transducer-contract-test]))
 
 (defn -main [& _]
   (let [{:keys [fail error]} (t/run-tests 'cforge.application-test
@@ -21,5 +22,6 @@
                                           'cforge.hosted-std-forge-test
                                           'cforge.library-contract-test
                                           'cforge.module-link-test
-                                          'cforge.spec-coverage-test)]
+                                          'cforge.spec-coverage-test
+                                          'cforge.transducer-contract-test)]
     (System/exit (if (zero? (+ fail error)) 0 1))))
