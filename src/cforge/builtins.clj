@@ -25,6 +25,7 @@
    ["string" "after_tab"] {:import ["std" "string"] :args [:str] :return :str :builtin :std.string/after-tab}
    ["string" "from_u64"] {:import ["std" "string"] :args [:u64] :return :str :builtin :std.string/from-u64}
    ["string" "from_usize"] {:import ["std" "string"] :args [:usize] :return :str :builtin :std.string/from-usize}
+   ["string" "parse_u64"] {:import ["std" "string"] :args [:str] :return :u64 :builtin :std.string/parse-u64}
    ["string" "parse_usize"] {:import ["std" "string"] :args [:str] :return :usize :builtin :std.string/parse-usize}
    ["string" "byte_len"] {:import ["std" "string"] :args [:str] :return :usize :builtin :std.string/byte-len}
    ["string" "byte_at"] {:import ["std" "string"] :args [:str :usize] :return :usize :builtin :std.string/byte-at}
@@ -95,6 +96,7 @@
                             (if (neg? i) "" (.substring s (inc i))))
     :std.string/from-u64 (str (first args))
     :std.string/from-usize (str (first args))
+    :std.string/parse-u64 (java.math.BigInteger. ^String (first args))
     :std.string/parse-usize (java.math.BigInteger. ^String (first args))
     :std.string/byte-len (count (.getBytes ^String (first args) java.nio.charset.StandardCharsets/UTF_8))
     :std.string/byte-at (let [bytes (.getBytes ^String (first args) java.nio.charset.StandardCharsets/UTF_8)]
