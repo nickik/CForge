@@ -17,5 +17,9 @@
     }
   }
 
-  :dependencies {}
+  :dependencies {
+    :bootstrap-support {
+      :path "packages/bootstrap-support"
+    }
+  }
 }
