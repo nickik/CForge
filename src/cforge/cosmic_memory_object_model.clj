@@ -78,7 +78,10 @@
                               (if (fail? store :before-publish)
                                 (do (rollback! store memory-pool provider charge allocation reservation object-id nil)
                                     {:error :injected-failure})
-                                (let [publish-result (oh/publish! (:handle-table store) reservation object-id)]
+                                (let [publish-result (oh/publish! (:handle-table store)
+                                                                  (:object-table store)
+                                                                  reservation
+                                                                  object-id)]
                                   (if-let [published (:ok publish-result)]
                                     (if (fail? store :after-publish)
                                       (do (rollback! store memory-pool provider charge allocation nil object-id (:handle published))
