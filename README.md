@@ -25,6 +25,8 @@ It is intentionally an interpreter rather than an optimizing compiler. Its prima
 
 The initial implementation targets the first shared executable conformance fixture: module/function declarations, local typed values, integer and boolean expressions, `if`/`else`, and `return`. Unsupported Forge syntax is rejected explicitly.
 
+CForge also contains executable semantic models for Forge's freestanding OS-foundation libraries. These cover raw memory, bit/endian helpers, MMIO, atomics, scheduler-free synchronization, bounded collections, intrusive queues, layout arithmetic, non-allocating writer semantics, and target facts. The integration suite composes those models with the same Arena/ObjectCache implementation over both kernel-like and hosted-like providers.
+
 ## Run
 
 ```sh
@@ -33,6 +35,12 @@ clojure -M -m cforge.main --ast path/to/file.fg
 clojure -M -m cforge.main --check path/to/file.fg
 clojure -M -m cforge.main --run path/to/file.fg
 clojure -M -m cforge.main --run --trace path/to/file.fg
+```
+
+Run all reference and contract tests with:
+
+```sh
+clojure -M:test
 ```
 
 `--pprint` pretty-prints structured output. `--trace` emits deterministic phase/evaluation events to stderr.
