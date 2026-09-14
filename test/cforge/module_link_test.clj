@@ -35,6 +35,25 @@
       (is (empty? (:diagnostics result)))
       (is (= 0 (:exit result))))))
 
+(deftest qualified-import-short-alias-runs
+  (testing "Forge exposes the final component of a qualified import as its module namespace"
+    (let [library-file (java.io.File/createTempFile "cforge-qualified-short-alias" ".fg")
+          _ (.deleteOnExit library-file)
+          _ (spit library-file
+                  (str "module cosmic.kernel.memory.address_space;\n"
+                       "pub fn page_size_valid(value: u32) -> bool { return value == 4096; }\n"))
+          source (str "module test.qualified_short_alias;\n"
+                      "import cosmic.kernel.memory.address_space;\n"
+                      "fn main() -> i32 {\n"
+                      "  if (!address_space.page_size_valid(4096)) { return 1; }\n"
+                      "  return 0;\n"
+                      "}\n")
+          result (core/run-source source
+                                  [["cosmic.kernel.memory.address_space"
+                                    (.getAbsolutePath library-file)]])]
+      (is (empty? (:diagnostics result)))
+      (is (= 0 (:exit result))))))
+
 (deftest imported-function-with-local-state-and-loop-runs
   (testing "cross-package calls are real calls, not one-expression inlining"
     (let [source (str "module test.cross_package_loop;\n"
