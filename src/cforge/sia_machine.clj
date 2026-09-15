@@ -1,8 +1,11 @@
 (ns cforge.sia-machine)
 
-;; Lowest-level hosted model of the SIA privileged effects that are real
-;; architectural operations. This is interpreter machinery, not Cosmic policy.
-;; Page-table construction/walking and address-space semantics remain Forge.
+;; Lowest-level hosted model of real SIA privileged effects. CForge's usize is
+;; host-width, while native SIA32 usize is 32-bit, so every architectural value
+;; is range-checked here. This is interpreter machinery, not Cosmic policy.
+
+(def ^:private max-u32 4294967295N)
+(def ^:private max-asid 4095N)
 
 (def ^:dynamic *state*
   (atom {:status 0N
@@ -12,6 +15,12 @@
          :tlb-fence-asid-count 0N
          :last-tlb-fence-va 0N
          :last-tlb-fence-asid 0N}))
+
+(defn- require-u32! [label value]
+  (let [v (bigint value)]
+    (when-not (<= 0N v max-u32)
+      (throw (ex-info (str label " must fit SIA32") {:value value})))
+    v))
 
 (defn reset-machine! []
   (reset! *state* {:status 0N
@@ -25,15 +34,14 @@
 
 (defn status-read [] (:status @*state*))
 (defn status-write! [value]
-  ;; SIA32-P currently defines STATUS bits 0..3; reserved bits read as zero.
-  (swap! *state* assoc :status (bit-and (bigint value) 0x0fN))
+  ;; SIA32-P defines STATUS bits 0..3; reserved bits read as zero.
+  (let [v (require-u32! "STATUS" value)]
+    (swap! *state* assoc :status (bit-and v 0x0fN)))
   nil)
 
 (defn vmctx-read [] (:vmctx @*state*))
 (defn vmctx-write! [value]
-  ;; VMCTX is a full 32-bit architectural register. CForge integer checking
-  ;; already ensures the Forge u32 caller cannot supply a wider value.
-  (swap! *state* assoc :vmctx (bigint value))
+  (swap! *state* assoc :vmctx (require-u32! "VMCTX" value))
   nil)
 
 (defn tlb-fence-all! []
@@ -41,17 +49,21 @@
   nil)
 
 (defn tlb-fence-va! [va]
-  (swap! *state* (fn [s]
-                   (-> s
-                       (update :tlb-fence-va-count inc)
-                       (assoc :last-tlb-fence-va (bigint va)))))
+  (let [v (require-u32! "TLBFENCE.VA operand" va)]
+    (swap! *state* (fn [s]
+                     (-> s
+                         (update :tlb-fence-va-count inc)
+                         (assoc :last-tlb-fence-va v)))))
   nil)
 
 (defn tlb-fence-asid! [asid]
-  (swap! *state* (fn [s]
-                   (-> s
-                       (update :tlb-fence-asid-count inc)
-                       (assoc :last-tlb-fence-asid (bigint asid)))))
+  (let [v (bigint asid)]
+    (when-not (<= 0N v max-asid)
+      (throw (ex-info "TLBFENCE.ASID operand must fit 12 bits" {:value asid})))
+    (swap! *state* (fn [s]
+                     (-> s
+                         (update :tlb-fence-asid-count inc)
+                         (assoc :last-tlb-fence-asid v)))))
   nil)
 
 (defn state [] @*state*)
