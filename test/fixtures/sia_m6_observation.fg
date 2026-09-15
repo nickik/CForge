@@ -1,0 +1,18 @@
+module test.sia_m6_observation;
+
+import std.machine.sia;
+
+fn main() -> i32 {
+    if (sia.status_read() != 3) { return 1; }
+    if (sia.vmctx_read() != 4097) { return 2; }
+
+    sia.status_write(8);
+    sia.vmctx_write(1048618);
+    sia.tlb_fence_va(65536);
+    sia.tlb_fence_asid(42);
+    sia.tlb_fence_all();
+
+    if (sia.status_read() != 8) { return 3; }
+    if (sia.vmctx_read() != 1048618) { return 4; }
+    return 0;
+}
