@@ -2,7 +2,8 @@
   (:require [clojure.string :as str]
             [cforge.collection-storage :as storage]
             [cforge.host :as host]
-            [cforge.host-services :as services]))
+            [cforge.host-services :as services]
+            [cforge.sia-machine :as sia]))
 
 (def file-lock-type :std.lock.FileLock)
 
@@ -29,9 +30,18 @@
    ["string" "byte_len"] {:import ["std" "string"] :args [:str] :return :usize :builtin :std.string/byte-len}
    ["string" "byte_at"] {:import ["std" "string"] :args [:str :usize] :return :usize :builtin :std.string/byte-at}
 
-   ;; These raw typed stores are CForge bootstrap machinery only. They support
-   ;; Forge-side data structures and machine reference models; they are not
-   ;; production kernel APIs and must not grow policy.
+   ;; True architectural SIA effects. CForge models only the machine state/effect;
+   ;; Cosmic policy and page-table construction remain Forge code.
+   ["sia" "status_read"] {:import ["std" "machine" "sia"] :args [] :return :u32 :builtin :std.sia/status-read}
+   ["sia" "status_write"] {:import ["std" "machine" "sia"] :args [:u32] :return :void :builtin :std.sia/status-write}
+   ["sia" "vmctx_read"] {:import ["std" "machine" "sia"] :args [] :return :u32 :builtin :std.sia/vmctx-read}
+   ["sia" "vmctx_write"] {:import ["std" "machine" "sia"] :args [:u32] :return :void :builtin :std.sia/vmctx-write}
+   ["sia" "tlb_fence_all"] {:import ["std" "machine" "sia"] :args [] :return :void :builtin :std.sia/tlb-fence-all}
+   ["sia" "tlb_fence_va"] {:import ["std" "machine" "sia"] :args [:u32] :return :void :builtin :std.sia/tlb-fence-va}
+   ["sia" "tlb_fence_asid"] {:import ["std" "machine" "sia"] :args [:u32] :return :void :builtin :std.sia/tlb-fence-asid}
+
+   ;; Raw typed stores are bootstrap machinery only. They support Forge-side
+   ;; data structures and reference machine memory; they are not kernel APIs.
    ["raw_u8" "create"] {:import ["std" "collections" "raw_u8"] :args [:usize] :return :usize :builtin :std.raw-u8/create}
    ["raw_u8" "slots"] {:import ["std" "collections" "raw_u8"] :args [:usize] :return :usize :builtin :std.raw-u8/slots}
    ["raw_u8" "get"] {:import ["std" "collections" "raw_u8"] :args [:usize :usize] :return :u8 :builtin :std.raw-u8/get}
@@ -113,6 +123,14 @@
     :std.string/byte-len (count (.getBytes ^String (first args) java.nio.charset.StandardCharsets/UTF_8))
     :std.string/byte-at (let [bytes (.getBytes ^String (first args) java.nio.charset.StandardCharsets/UTF_8)]
                           (bigint (bit-and 0xff (aget bytes (int (second args))))))
+
+    :std.sia/status-read (sia/status-read)
+    :std.sia/status-write (do (sia/status-write! (first args)) nil)
+    :std.sia/vmctx-read (sia/vmctx-read)
+    :std.sia/vmctx-write (do (sia/vmctx-write! (first args)) nil)
+    :std.sia/tlb-fence-all (do (sia/tlb-fence-all!) nil)
+    :std.sia/tlb-fence-va (do (sia/tlb-fence-va! (first args)) nil)
+    :std.sia/tlb-fence-asid (do (sia/tlb-fence-asid! (first args)) nil)
 
     :std.raw-u8/create (storage/create-u8 (first args))
     :std.raw-u8/slots (storage/slots-u8 (first args))
