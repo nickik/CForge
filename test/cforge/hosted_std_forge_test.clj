@@ -67,3 +67,18 @@
         result (core/run-source source)]
     (is (empty? (:diagnostics result)))
     (is (= 0 (:exit result)))))
+
+(deftest raw-u32-bootstrap-storage-is-typed
+  (let [source (str "module test.raw_u32;\n"
+                    "import std.collections.raw_u32;\n"
+                    "fn main() -> i32 {\n"
+                    "  val h: usize = raw_u32.create(2);\n"
+                    "  raw_u32.set(h, 0, 305419896);\n"
+                    "  raw_u32.set(h, 1, 4294967295);\n"
+                    "  if ((raw_u32.get(h, 0) == 305419896) &&\n"
+                    "      (raw_u32.get(h, 1) == 4294967295)) { return 0; }\n"
+                    "  return 1;\n"
+                    "}\n")
+        result (core/run-source source)]
+    (is (empty? (:diagnostics result)))
+    (is (= 0 (:exit result)))))
