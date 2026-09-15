@@ -39,6 +39,12 @@
       (throw (ex-info (str label " must fit 12 bits") {:value value})))
     v))
 
+(defn- status-mask [value]
+  ;; STATUS currently exposes bits 0..3 only. Values have already been checked
+  ;; as non-negative u32, so modulo 16 is exactly value & 0x0f and works for
+  ;; Clojure BigInt without narrowing the hosted representation.
+  (mod value 16N))
+
 (defn- current-asid [state]
   (mod (:vmctx state) 4096N))
 
@@ -56,7 +62,7 @@
   "Set deterministic initial architectural state without recording instructions.
    Intended for the external conformance harness before a Forge program runs."
   [status vmctx]
-  (let [status-value (bit-and (require-u32! "STATUS" status) 0x0fN)
+  (let [status-value (status-mask (require-u32! "STATUS" status))
         vmctx-value (require-u32! "VMCTX" vmctx)]
     (reset! *state* (fresh-state status-value vmctx-value)))
   nil)
@@ -65,7 +71,7 @@
 (defn status-write! [value]
   ;; SIA32-P defines STATUS bits 0..3; reserved bits read as zero.
   (let [requested (require-u32! "STATUS" value)
-        stored (bit-and requested 0x0fN)]
+        stored (status-mask requested)]
     (swap! *state*
            (fn [s]
              (-> s
