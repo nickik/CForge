@@ -30,14 +30,21 @@
    ["string" "byte_at"] {:import ["std" "string"] :args [:str :usize] :return :usize :builtin :std.string/byte-at}
 
    ;; These raw typed stores are CForge bootstrap machinery only. They support
-   ;; forge-collections-bootstrap; they are not the production Forge collection
-   ;; API and must not grow collection-level allocation policy.
+   ;; Forge-side data structures and machine reference models; they are not
+   ;; production kernel APIs and must not grow policy.
    ["raw_u8" "create"] {:import ["std" "collections" "raw_u8"] :args [:usize] :return :usize :builtin :std.raw-u8/create}
    ["raw_u8" "slots"] {:import ["std" "collections" "raw_u8"] :args [:usize] :return :usize :builtin :std.raw-u8/slots}
    ["raw_u8" "get"] {:import ["std" "collections" "raw_u8"] :args [:usize :usize] :return :u8 :builtin :std.raw-u8/get}
    ["raw_u8" "set"] {:import ["std" "collections" "raw_u8"] :args [:usize :usize :u8] :return :void :builtin :std.raw-u8/set}
    ["raw_u8" "resize"] {:import ["std" "collections" "raw_u8"] :args [:usize :usize] :return :void :builtin :std.raw-u8/resize}
    ["raw_u8" "swap"] {:import ["std" "collections" "raw_u8"] :args [:usize :usize] :return :void :builtin :std.raw-u8/swap}
+
+   ["raw_u32" "create"] {:import ["std" "collections" "raw_u32"] :args [:usize] :return :usize :builtin :std.raw-u32/create}
+   ["raw_u32" "slots"] {:import ["std" "collections" "raw_u32"] :args [:usize] :return :usize :builtin :std.raw-u32/slots}
+   ["raw_u32" "get"] {:import ["std" "collections" "raw_u32"] :args [:usize :usize] :return :u32 :builtin :std.raw-u32/get}
+   ["raw_u32" "set"] {:import ["std" "collections" "raw_u32"] :args [:usize :usize :u32] :return :void :builtin :std.raw-u32/set}
+   ["raw_u32" "resize"] {:import ["std" "collections" "raw_u32"] :args [:usize :usize] :return :void :builtin :std.raw-u32/resize}
+   ["raw_u32" "swap"] {:import ["std" "collections" "raw_u32"] :args [:usize :usize] :return :void :builtin :std.raw-u32/swap}
 
    ["raw_u64" "create"] {:import ["std" "collections" "raw_u64"] :args [:usize] :return :usize :builtin :std.raw-u64/create}
    ["raw_u64" "slots"] {:import ["std" "collections" "raw_u64"] :args [:usize] :return :usize :builtin :std.raw-u64/slots}
@@ -113,6 +120,13 @@
     :std.raw-u8/set (do (storage/set-u8! (nth args 0) (nth args 1) (nth args 2)) nil)
     :std.raw-u8/resize (do (storage/resize-u8! (nth args 0) (nth args 1)) nil)
     :std.raw-u8/swap (do (storage/swap-u8! (nth args 0) (nth args 1)) nil)
+
+    :std.raw-u32/create (storage/create-u32 (first args))
+    :std.raw-u32/slots (storage/slots-u32 (first args))
+    :std.raw-u32/get (storage/get-u32 (nth args 0) (nth args 1))
+    :std.raw-u32/set (do (storage/set-u32! (nth args 0) (nth args 1) (nth args 2)) nil)
+    :std.raw-u32/resize (do (storage/resize-u32! (nth args 0) (nth args 1)) nil)
+    :std.raw-u32/swap (do (storage/swap-u32! (nth args 0) (nth args 1)) nil)
 
     :std.raw-u64/create (storage/create-u64 (first args))
     :std.raw-u64/slots (storage/slots-u64 (first args))
