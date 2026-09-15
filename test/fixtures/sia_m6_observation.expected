@@ -1,0 +1,8 @@
+sia32-machine-observation-v1
+status	8
+vmctx	1048618
+event	0	status_write	8	8
+event	1	vmctx_write	1048618
+event	2	tlb_fence_va	65536	42
+event	3	tlb_fence_asid	42
+event	4	tlb_fence_all

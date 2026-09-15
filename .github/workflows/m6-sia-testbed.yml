@@ -1,0 +1,45 @@
+name: M6 SIA testbed
+
+on:
+  push:
+    branches: [m6-lighting-conformance, m6.2-conformance]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  m6-sia-testbed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CForge
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Install Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.5
+        with:
+          cli: latest
+
+      - name: Resolve dependencies
+        run: clojure -P -M:test
+
+      - name: Run unit tests
+        run: clojure -M:test
+
+      - name: Run SIA CLI observation smoke
+        run: |
+          clojure -M:native -- \
+            --run \
+            --platform cforge-sia32 \
+            --sia-status 3 \
+            --sia-vmctx 4097 \
+            --sia-observation /tmp/sia-m6.observation \
+            test/fixtures/sia_m6_observation.fg
+          diff -u test/fixtures/sia_m6_observation.expected /tmp/sia-m6.observation
