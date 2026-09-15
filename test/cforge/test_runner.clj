@@ -14,6 +14,7 @@
             [cforge.library-contract-test]
             [cforge.list-u64-allocator-contract-test]
             [cforge.module-link-test]
+            [cforge.sia-machine-conformance-test]
             [cforge.spec-coverage-test]
             [cforge.transducer-contract-test]))
 
@@ -32,6 +33,7 @@
                                           'cforge.library-contract-test
                                           'cforge.list-u64-allocator-contract-test
                                           'cforge.module-link-test
+                                          'cforge.sia-machine-conformance-test
                                           'cforge.spec-coverage-test
                                           'cforge.transducer-contract-test)]
     (System/exit (if (zero? (+ fail error)) 0 1))))
