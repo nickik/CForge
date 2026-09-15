@@ -30,15 +30,15 @@
    ["string" "byte_len"] {:import ["std" "string"] :args [:str] :return :usize :builtin :std.string/byte-len}
    ["string" "byte_at"] {:import ["std" "string"] :args [:str :usize] :return :usize :builtin :std.string/byte-at}
 
-   ;; True architectural SIA effects. CForge models only the machine state/effect;
-   ;; Cosmic policy and page-table construction remain Forge code.
-   ["sia" "status_read"] {:import ["std" "machine" "sia"] :args [] :return :u32 :builtin :std.sia/status-read}
-   ["sia" "status_write"] {:import ["std" "machine" "sia"] :args [:u32] :return :void :builtin :std.sia/status-write}
-   ["sia" "vmctx_read"] {:import ["std" "machine" "sia"] :args [] :return :u32 :builtin :std.sia/vmctx-read}
-   ["sia" "vmctx_write"] {:import ["std" "machine" "sia"] :args [:u32] :return :void :builtin :std.sia/vmctx-write}
+   ;; Real SIA architectural effects. Forge target-word types are used here:
+   ;; native SIA32 usize is 32-bit; the hosted backend range-checks host usize.
+   ["sia" "status_read"] {:import ["std" "machine" "sia"] :args [] :return :usize :builtin :std.sia/status-read}
+   ["sia" "status_write"] {:import ["std" "machine" "sia"] :args [:usize] :return :void :builtin :std.sia/status-write}
+   ["sia" "vmctx_read"] {:import ["std" "machine" "sia"] :args [] :return :usize :builtin :std.sia/vmctx-read}
+   ["sia" "vmctx_write"] {:import ["std" "machine" "sia"] :args [:usize] :return :void :builtin :std.sia/vmctx-write}
    ["sia" "tlb_fence_all"] {:import ["std" "machine" "sia"] :args [] :return :void :builtin :std.sia/tlb-fence-all}
-   ["sia" "tlb_fence_va"] {:import ["std" "machine" "sia"] :args [:u32] :return :void :builtin :std.sia/tlb-fence-va}
-   ["sia" "tlb_fence_asid"] {:import ["std" "machine" "sia"] :args [:u32] :return :void :builtin :std.sia/tlb-fence-asid}
+   ["sia" "tlb_fence_va"] {:import ["std" "machine" "sia"] :args [:usize] :return :void :builtin :std.sia/tlb-fence-va}
+   ["sia" "tlb_fence_asid"] {:import ["std" "machine" "sia"] :args [:usize] :return :void :builtin :std.sia/tlb-fence-asid}
 
    ;; Raw typed stores are bootstrap machinery only. They support Forge-side
    ;; data structures and reference machine memory; they are not kernel APIs.
