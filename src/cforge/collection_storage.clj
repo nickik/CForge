@@ -38,6 +38,7 @@
                 nil))}))
 
 (def ^:dynamic *u8-storage* (make-provider 0N))
+(def ^:dynamic *u32-storage* (make-provider 0N))
 (def ^:dynamic *u64-storage* (make-provider 0N))
 (def ^:dynamic *usize-storage* (make-provider 0N))
 (def ^:dynamic *string-storage* (make-provider ""))
@@ -48,6 +49,13 @@
 (defn set-u8! [handle index value] ((:set! *u8-storage*) handle index value))
 (defn resize-u8! [handle slots] ((:resize! *u8-storage*) handle slots))
 (defn swap-u8! [left right] ((:swap! *u8-storage*) left right))
+
+(defn create-u32 [slots] ((:create *u32-storage*) slots))
+(defn slots-u32 [handle] ((:slots *u32-storage*) handle))
+(defn get-u32 [handle index] ((:get *u32-storage*) handle index))
+(defn set-u32! [handle index value] ((:set! *u32-storage*) handle index value))
+(defn resize-u32! [handle slots] ((:resize! *u32-storage*) handle slots))
+(defn swap-u32! [left right] ((:swap! *u32-storage*) left right))
 
 (defn create-u64 [slots] ((:create *u64-storage*) slots))
 (defn slots-u64 [handle] ((:slots *u64-storage*) handle))
