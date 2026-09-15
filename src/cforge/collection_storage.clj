@@ -53,7 +53,11 @@
 (defn create-u32 [slots] ((:create *u32-storage*) slots))
 (defn slots-u32 [handle] ((:slots *u32-storage*) handle))
 (defn get-u32 [handle index] ((:get *u32-storage*) handle index))
-(defn set-u32! [handle index value] ((:set! *u32-storage*) handle index value))
+(defn set-u32! [handle index value]
+  (let [v (bigint value)]
+    (when-not (<= 0N v 4294967295N)
+      (throw (ex-info "raw_u32 value out of range" {:value value})))
+    ((:set! *u32-storage*) handle index v)))
 (defn resize-u32! [handle slots] ((:resize! *u32-storage*) handle slots))
 (defn swap-u32! [left right] ((:swap! *u32-storage*) left right))
 
