@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORGE_TOOLCHAIN_REF: bea9cc03817b98c329acd6dc0f3e5f1a0154010a
+
 jobs:
   collections:
     name: Forge collections smoke
@@ -21,6 +24,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: nickik/forge
+          ref: ${{ env.FORGE_TOOLCHAIN_REF }}
           path: .forge-toolchain
 
       - name: Set up Rust
@@ -39,6 +43,9 @@ jobs:
 
       - name: Resolve CForge dependencies
         run: clojure -P -M:native
+
+      - name: Verify pinned Forge toolchain
+        run: test "$(git -C .forge-toolchain rev-parse HEAD)" = "$FORGE_TOOLCHAIN_REF"
 
       - name: Run bootstrap Forge collections smoke
         run: |
