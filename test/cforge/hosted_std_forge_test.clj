@@ -1,7 +1,8 @@
 (ns cforge.hosted-std-forge-test
   (:require [clojure.test :refer [deftest is testing]]
             [cforge.core :as core]
-            [cforge.host-services :as services]))
+            [cforge.host-services :as services]
+            [cforge.sia-machine :as sia]))
 
 (deftest forge-program-uses-args-string-and-time
   (let [source (str "module test.hosted_std;\n"
@@ -82,3 +83,26 @@
         result (core/run-source source)]
     (is (empty? (:diagnostics result)))
     (is (= 0 (:exit result)))))
+
+(deftest forge-program-uses-only-architectural-sia-effects
+  (sia/reset-machine!)
+  (let [source (str "module test.sia_machine;\n"
+                    "import std.machine.sia;\n"
+                    "fn main() -> i32 {\n"
+                    "  sia.status_write(9);\n"
+                    "  sia.vmctx_write(305418241);\n"
+                    "  sia.tlb_fence_va(65536);\n"
+                    "  sia.tlb_fence_asid(7);\n"
+                    "  sia.tlb_fence_all();\n"
+                    "  if ((sia.status_read() == 9) && (sia.vmctx_read() == 305418241)) { return 0; }\n"
+                    "  return 1;\n"
+                    "}\n")
+        result (core/run-source source)
+        state (sia/state)]
+    (is (empty? (:diagnostics result)))
+    (is (= 0 (:exit result)))
+    (is (= 1N (:tlb-fence-va-count state)))
+    (is (= 65536N (:last-tlb-fence-va state)))
+    (is (= 1N (:tlb-fence-asid-count state)))
+    (is (= 7N (:last-tlb-fence-asid state)))
+    (is (= 1N (:tlb-fence-all-count state)))))
