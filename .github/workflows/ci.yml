@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORGE_TOOLCHAIN_REF: bea9cc03817b98c329acd6dc0f3e5f1a0154010a
+
 jobs:
   test:
     name: Clojure tests
@@ -21,6 +24,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: nickik/forge
+          ref: ${{ env.FORGE_TOOLCHAIN_REF }}
           path: .forge-toolchain
 
       - name: Set up Rust
@@ -43,6 +47,7 @@ jobs:
           cargo --version
           java --version
           clojure -Sdescribe
+          git -C .forge-toolchain rev-parse HEAD
 
       - name: Resolve dependencies
         run: clojure -P -M:test
@@ -129,6 +134,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: nickik/forge
+          ref: ${{ env.FORGE_TOOLCHAIN_REF }}
           path: .forge-toolchain
 
       - name: Set up Rust
@@ -154,6 +160,7 @@ jobs:
           java --version
           native-image --version
           clojure -Sdescribe
+          git -C .forge-toolchain rev-parse HEAD
 
       - name: Build native executable
         run: bash bin/build-native.sh
