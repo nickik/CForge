@@ -2,7 +2,7 @@ name: M6 SIA testbed
 
 on:
   push:
-    branches: [m6-lighting-conformance]
+    branches: [m6-lighting-conformance, m6.2-conformance]
   pull_request:
   workflow_dispatch:
 
